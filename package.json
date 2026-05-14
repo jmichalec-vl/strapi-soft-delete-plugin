@@ -1,0 +1,105 @@
+{
+  "name": "strapi-soft-delete-plugin",
+  "version": "0.1.0",
+  "description": "Soft delete plugin for Strapi v5 — never lose content again. Drop-in replacement for strapi-plugin-soft-delete with pagination, lifecycle hooks, TTL auto-purge, and full test coverage.",
+  "license": "MIT",
+  "exports": {
+    "./package.json": "./package.json",
+    "./strapi-admin": {
+      "source": "./admin/src/index.ts",
+      "import": "./dist/admin/index.mjs",
+      "require": "./dist/admin/index.js",
+      "default": "./dist/admin/index.js"
+    },
+    "./strapi-server": {
+      "source": "./server/src/index.ts",
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.js",
+      "default": "./dist/server/index.js"
+    }
+  },
+  "scripts": {
+    "build": "strapi-plugin build",
+    "watch": "strapi-plugin watch",
+    "watch:link": "strapi-plugin watch:link",
+    "verify": "strapi-plugin verify",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.config.e2e.ts",
+    "type-check": "tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p admin/tsconfig.json && tsc --noEmit -p __tests__/tsconfig.json",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "peerDependencies": {
+    "@strapi/design-system": "^2.2.0",
+    "@strapi/icons": "^2.2.0",
+    "@strapi/strapi": "^5.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-intl": "^6.0.0",
+    "react-query": "^3.0.0",
+    "react-router-dom": "^6.0.0",
+    "styled-components": "^6.0.0"
+  },
+  "devDependencies": {
+    "@strapi/sdk-plugin": "^6.0.1",
+    "@strapi/strapi": "^5.0.0",
+    "@strapi/types": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.3",
+    "@typescript-eslint/parser": "^8.59.3",
+    "@vitest/coverage-v8": "^3.0.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "react-router-dom": "^6.30.3",
+    "styled-components": "^6.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0 <=24.x.x",
+    "npm": ">=6.0.0"
+  },
+  "strapi": {
+    "name": "soft-delete",
+    "displayName": "Soft Delete",
+    "description": "Soft delete plugin for Strapi v5 — never lose content again.",
+    "kind": "plugin"
+  },
+  "keywords": [
+    "strapi",
+    "strapi-plugin",
+    "strapi-v5",
+    "soft-delete",
+    "trash",
+    "recycle-bin",
+    "restore",
+    "content-management",
+    "headless-cms"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmichalec-vl/strapi-soft-delete-plugin.git"
+  },
+  "homepage": "https://github.com/jmichalec-vl/strapi-soft-delete-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/jmichalec-vl/strapi-soft-delete-plugin/issues"
+  },
+  "author": "jmichalec-vl",
+  "files": [
+    "dist",
+    "server",
+    "admin",
+    "package.json",
+    "README.md",
+    "LICENSE.md",
+    "MIGRATION.md"
+  ]
+}

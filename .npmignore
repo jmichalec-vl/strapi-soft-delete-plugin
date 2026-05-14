@@ -1,0 +1,11 @@
+__tests__/
+server/src/
+admin/src/
+*.tsbuildinfo
+.gitignore
+.eslintrc
+.prettierrc
+tsconfig*.json
+coverage/
+.yalc/
+yalc.lock
