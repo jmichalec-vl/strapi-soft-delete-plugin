@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run lint
+      - run: npm run format:check
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run test:coverage
+
+  build:
+    name: Build Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run verify
+
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Build the plugin
+      - run: npm ci
+      - run: npm run build
+
+      # Install E2E test app dependencies
+      - name: Install E2E app dependencies
+        working-directory: __tests__/e2e/strapi-app
+        run: npm ci
+
+      # Build Strapi app (compiles TS, builds admin)
+      - name: Build Strapi app
+        working-directory: __tests__/e2e/strapi-app
+        run: npx strapi build
+        env:
+          BROWSER: none
+          NODE_OPTIONS: --max-old-space-size=4096
+          APP_KEYS: testKey1,testKey2
+          ADMIN_JWT_SECRET: test-admin-jwt-secret
+          API_TOKEN_SALT: test-api-token-salt
+          TRANSFER_TOKEN_SALT: test-transfer-token-salt
+          JWT_SECRET: test-jwt-secret
+
+      # Ensure required directories exist
+      - name: Create required directories
+        working-directory: __tests__/e2e/strapi-app
+        run: mkdir -p public/uploads .tmp
+
+      # Start Strapi, wait for health, run E2E tests
+      - name: Start Strapi and run E2E tests
+        working-directory: __tests__/e2e/strapi-app
+        run: |
+          npx strapi start &
+          STRAPI_PID=$!
+
+          echo "Waiting for Strapi to start (PID: $STRAPI_PID)..."
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:1337/_health > /dev/null 2>&1; then
+              echo "Strapi is ready after ${i}s!"
+              break
+            fi
+            if [ "$i" -eq 90 ]; then
+              echo "Strapi failed to start within 90s"
+              kill $STRAPI_PID 2>/dev/null
+              exit 1
+            fi
+            sleep 1
+          done
+
+          cd ../../..
+          npm run test:e2e
+
+          kill $STRAPI_PID 2>/dev/null
+        env:
+          HOST: 0.0.0.0
+          PORT: 1337
+          APP_KEYS: testKey1,testKey2
+          ADMIN_JWT_SECRET: test-admin-jwt-secret
+          API_TOKEN_SALT: test-api-token-salt
+          TRANSFER_TOKEN_SALT: test-transfer-token-salt
+          JWT_SECRET: test-jwt-secret

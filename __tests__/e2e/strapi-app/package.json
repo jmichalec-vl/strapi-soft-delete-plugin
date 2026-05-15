@@ -1,0 +1,27 @@
+{
+  "name": "strapi-soft-delete-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Minimal Strapi v5 app for E2E testing of strapi-soft-delete-plugin",
+  "scripts": {
+    "develop": "strapi develop",
+    "start": "strapi start",
+    "build": "strapi build",
+    "strapi": "strapi"
+  },
+  "dependencies": {
+    "@strapi/plugin-users-permissions": "^5.46.0",
+    "@strapi/strapi": "^5.46.0",
+    "better-sqlite3": "^11.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.3",
+    "styled-components": "^6.4.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
