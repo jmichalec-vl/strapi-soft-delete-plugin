@@ -1,5 +1,10 @@
 # Strapi v5 — Soft Delete Plugin
 
+[![npm version](https://img.shields.io/npm/v/strapi-soft-delete-plugin)](https://www.npmjs.com/package/strapi-soft-delete-plugin)
+[![npm downloads](https://img.shields.io/npm/dm/strapi-soft-delete-plugin)](https://www.npmjs.com/package/strapi-soft-delete-plugin)
+[![CI](https://github.com/jmichalec-vl/strapi-soft-delete-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/jmichalec-vl/strapi-soft-delete-plugin/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
+
 Soft delete plugin for Strapi v5 — never lose content again. When you delete an entry, it's marked as deleted instead of being removed from the database. You can restore it or permanently delete it later.
 
 Drop-in replacement for `strapi-plugin-soft-delete` with significant improvements.
