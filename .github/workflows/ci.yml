@@ -81,6 +81,11 @@ jobs:
           BROWSER: none
           NODE_OPTIONS: --max-old-space-size=4096
 
+      # Ensure required directories exist
+      - name: Create required directories
+        working-directory: __tests__/e2e/strapi-app
+        run: mkdir -p public/uploads .tmp
+
       # Start Strapi in background
       - name: Start Strapi
         working-directory: __tests__/e2e/strapi-app
