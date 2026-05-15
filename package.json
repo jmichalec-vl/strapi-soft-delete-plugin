@@ -1,6 +1,6 @@
 {
   "name": "strapi-soft-delete-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Soft delete plugin for Strapi v5 — never lose content again. Drop-in replacement for strapi-plugin-soft-delete with pagination, lifecycle hooks, TTL auto-purge, and full test coverage.",
   "license": "MIT",
   "exports": {
