@@ -13,14 +13,34 @@ const log = (hookName: string) => {
 };
 
 export default {
-  beforeCreate() { log('beforeCreate'); },
-  afterCreate() { log('afterCreate'); },
-  beforeUpdate() { log('beforeUpdate'); },
-  afterUpdate() { log('afterUpdate'); },
-  beforeDelete() { log('beforeDelete'); },
-  afterDelete() { log('afterDelete'); },
-  beforeUpdateMany() { log('beforeUpdateMany'); },
-  afterUpdateMany() { log('afterUpdateMany'); },
-  beforeDeleteMany() { log('beforeDeleteMany'); },
-  afterDeleteMany() { log('afterDeleteMany'); },
+  beforeCreate() {
+    log('beforeCreate');
+  },
+  afterCreate() {
+    log('afterCreate');
+  },
+  beforeUpdate() {
+    log('beforeUpdate');
+  },
+  afterUpdate() {
+    log('afterUpdate');
+  },
+  beforeDelete() {
+    log('beforeDelete');
+  },
+  afterDelete() {
+    log('afterDelete');
+  },
+  beforeUpdateMany() {
+    log('beforeUpdateMany');
+  },
+  afterUpdateMany() {
+    log('afterUpdateMany');
+  },
+  beforeDeleteMany() {
+    log('beforeDeleteMany');
+  },
+  afterDeleteMany() {
+    log('afterDeleteMany');
+  },
 };

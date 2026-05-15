@@ -29,7 +29,10 @@ beforeAll(async () => {
     const role = (roleData as { role: { permissions: Record<string, unknown> } }).role;
 
     // Enable find and findOne for articles
-    const permissions = role.permissions as Record<string, Record<string, Record<string, Record<string, unknown>>>>;
+    const permissions = role.permissions as Record<
+      string,
+      Record<string, Record<string, Record<string, unknown>>>
+    >;
     if (permissions?.['api::article']?.controllers?.article) {
       permissions['api::article'].controllers.article.find = { enabled: true };
       permissions['api::article'].controllers.article.findOne = { enabled: true };
@@ -54,7 +57,9 @@ describe('public REST API excludes soft-deleted entries', () => {
 
     // Publish both so they appear in public API
     const CM = '/content-manager/collection-types/api::article.article';
-    await api.post(`${CM}/${(await createArticle(slugVisible, 'Visible Article')).documentId}/actions/publish`);
+    await api.post(
+      `${CM}/${(await createArticle(slugVisible, 'Visible Article')).documentId}/actions/publish`,
+    );
     await api.post(`${CM}/${deletedDocumentId}/actions/publish`);
   });
 

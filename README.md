@@ -23,9 +23,9 @@ Drop-in replacement for `strapi-plugin-soft-delete` with significant improvement
 
 ## Compatibility
 
-| Strapi Version | Plugin Version |
-|----------------|----------------|
-| ^5.0.0         | 1.x            |
+| Strapi Version | Plugin Version                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------- |
+| ^5.0.0         | 1.x                                                                                         |
 | ^4.x           | Use [strapi-plugin-soft-delete](https://github.com/ChristopheCVB/strapi-plugin-soft-delete) |
 
 ## Installation
@@ -68,8 +68,8 @@ export default () => ({
     config: {
       autoPurge: {
         enabled: true,
-        ttlDays: 30,        // permanently delete after 30 days
-        cron: '0 2 * * *',  // run daily at 2 AM
+        ttlDays: 30, // permanently delete after 30 days
+        cron: '0 2 * * *', // run daily at 2 AM
       },
     },
   },
@@ -80,14 +80,14 @@ export default () => ({
 
 Configure per-role in **Settings → Roles → [Role Name]**:
 
-| Section | Permission | Description |
-|---------|-----------|-------------|
-| Collection & Single Types | `Soft Delete` | Soft delete entries (replaces "Delete") |
-| Collection & Single Types | `Deleted Read` | View soft-deleted entries in the explorer |
-| Collection & Single Types | `Deleted Restore` | Restore soft-deleted entries |
-| Collection & Single Types | `Delete Permanently` | Permanently remove soft-deleted entries |
-| Plugins → Soft Delete | `Read` | Access the Soft Delete explorer in the sidebar |
-| Plugins → Soft Delete | `Settings` | Manage plugin settings |
+| Section                   | Permission           | Description                                    |
+| ------------------------- | -------------------- | ---------------------------------------------- |
+| Collection & Single Types | `Soft Delete`        | Soft delete entries (replaces "Delete")        |
+| Collection & Single Types | `Deleted Read`       | View soft-deleted entries in the explorer      |
+| Collection & Single Types | `Deleted Restore`    | Restore soft-deleted entries                   |
+| Collection & Single Types | `Delete Permanently` | Permanently remove soft-deleted entries        |
+| Plugins → Soft Delete     | `Read`               | Access the Soft Delete explorer in the sidebar |
+| Plugins → Soft Delete     | `Settings`           | Manage plugin settings                         |
 
 ## Settings
 
@@ -96,10 +96,12 @@ Configure per-role in **Settings → Roles → [Role Name]**:
 Configure in **Settings → Soft Delete → Restoration Behavior**:
 
 **Single Type Restoration** — when restoring a single type entry that already has an active entry:
+
 - `Soft Delete` — soft-delete the existing active entry (default)
 - `Delete Permanently` — permanently delete the existing active entry
 
 **Draft & Publish Restoration** — when restoring an entry from a D&P content type:
+
 - `Unchanged` — preserve the original publish state (default)
 - `Draft` — always restore as draft
 
@@ -126,6 +128,7 @@ export default {
 ```
 
 Available hooks:
+
 - `beforeSoftDelete` / `afterSoftDelete`
 - `beforeRestore` / `afterRestore`
 - `beforeDeletePermanently` / `afterDeletePermanently`

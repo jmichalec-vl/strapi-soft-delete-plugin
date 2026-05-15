@@ -2,3 +2,8 @@ dist
 node_modules
 coverage
 .yalc
+__tests__/e2e/strapi-app/.strapi
+__tests__/e2e/strapi-app/types
+__tests__/e2e/strapi-app/node_modules
+__tests__/e2e/strapi-app/dist
+__tests__/e2e/strapi-app/.tmp

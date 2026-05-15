@@ -12,7 +12,6 @@ beforeEach(() => {
     'api::page.page': { uid: 'api::page.page' },
     'admin::user': { uid: 'admin::user' },
   });
-
 });
 
 const createService = () => dbSubscriberFactory({ strapi: mock.strapi as never });

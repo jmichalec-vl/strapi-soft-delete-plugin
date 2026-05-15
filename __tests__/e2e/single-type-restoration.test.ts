@@ -1,11 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 import { login, api } from './helpers/api-client';
-import {
-  createOrUpdateHomepage,
-  getHomepage,
-  deleteHomepage,
-} from './helpers/content-manager';
+import { createOrUpdateHomepage, getHomepage, deleteHomepage } from './helpers/content-manager';
 import {
   getSoftDeletedHomepages,
   findSoftDeletedHomepage,

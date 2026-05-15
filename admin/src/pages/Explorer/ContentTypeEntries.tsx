@@ -190,10 +190,7 @@ export const ContentTypeEntries = ({ contentType }: ContentTypeEntriesProps) => 
       />
 
       <Layouts.Content>
-        <Filters
-          onFilter={(f) => setFilters(f)}
-          onClear={() => setFilters({})}
-        />
+        <Filters onFilter={(f) => setFilters(f)} onClear={() => setFilters({})} />
         {isLoading ? (
           <Page.Loading />
         ) : entries.length === 0 ? (

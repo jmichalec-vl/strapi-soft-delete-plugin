@@ -51,7 +51,7 @@ export const createArticle = async (
   const options: CreateArticleOptions =
     typeof categoryOrOptions === 'string'
       ? { categoryDocumentId: categoryOrOptions }
-      : categoryOrOptions ?? {};
+      : (categoryOrOptions ?? {});
 
   const body: Record<string, unknown> = {
     title: title ?? `Test Article ${slug}`,

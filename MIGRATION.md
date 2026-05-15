@@ -70,12 +70,12 @@ Plugin settings are stored in the same format and location (`strapi_core_store_s
 
 Admin API endpoints now use `documentId` (string) instead of numeric `id`:
 
-| v4 | v5 |
-|----|----|
-| `GET /:kind/:uid/:id` | `GET /:kind/:uid/:documentId` |
-| `DELETE /:kind/:uid/:id/delete` | `DELETE /:kind/:uid/:documentId` |
-| `PUT /:kind/:uid/:id/restore` | `PUT /:kind/:uid/:documentId/restore` |
-| `PUT /:kind/:uid/delete` (batch, PUT) | `POST /:kind/:uid/batch-delete` (POST) |
+| v4                                     | v5                                      |
+| -------------------------------------- | --------------------------------------- |
+| `GET /:kind/:uid/:id`                  | `GET /:kind/:uid/:documentId`           |
+| `DELETE /:kind/:uid/:id/delete`        | `DELETE /:kind/:uid/:documentId`        |
+| `PUT /:kind/:uid/:id/restore`          | `PUT /:kind/:uid/:documentId/restore`   |
+| `PUT /:kind/:uid/delete` (batch, PUT)  | `POST /:kind/:uid/batch-delete` (POST)  |
 | `PUT /:kind/:uid/restore` (batch, PUT) | `POST /:kind/:uid/batch-restore` (POST) |
 
 ### Lifecycle Hooks
@@ -98,40 +98,58 @@ The plugin now provides its own lifecycle hooks:
 
 ```typescript
 // In your plugin or application bootstrap
-strapi.plugin('soft-delete').service('lifecycle-hooks').register('beforeSoftDelete', async (payload) => {
-  // payload: { uid, documentId, entries, auth }
-  // Return { cancel: true } to prevent the soft-delete
-});
+strapi
+  .plugin('soft-delete')
+  .service('lifecycle-hooks')
+  .register('beforeSoftDelete', async (payload) => {
+    // payload: { uid, documentId, entries, auth }
+    // Return { cancel: true } to prevent the soft-delete
+  });
 
-strapi.plugin('soft-delete').service('lifecycle-hooks').register('afterSoftDelete', async (payload) => {
-  // Runs after soft-delete completes
-});
+strapi
+  .plugin('soft-delete')
+  .service('lifecycle-hooks')
+  .register('afterSoftDelete', async (payload) => {
+    // Runs after soft-delete completes
+  });
 
-strapi.plugin('soft-delete').service('lifecycle-hooks').register('beforeRestore', async (payload) => {
-  // Return { cancel: true } to prevent the restore
-});
+strapi
+  .plugin('soft-delete')
+  .service('lifecycle-hooks')
+  .register('beforeRestore', async (payload) => {
+    // Return { cancel: true } to prevent the restore
+  });
 
-strapi.plugin('soft-delete').service('lifecycle-hooks').register('afterRestore', async (payload) => {
-  // Runs after restore completes
-});
+strapi
+  .plugin('soft-delete')
+  .service('lifecycle-hooks')
+  .register('afterRestore', async (payload) => {
+    // Runs after restore completes
+  });
 
-strapi.plugin('soft-delete').service('lifecycle-hooks').register('beforeDeletePermanently', async (payload) => {
-  // Return { cancel: true } to prevent permanent deletion
-});
+strapi
+  .plugin('soft-delete')
+  .service('lifecycle-hooks')
+  .register('beforeDeletePermanently', async (payload) => {
+    // Return { cancel: true } to prevent permanent deletion
+  });
 
-strapi.plugin('soft-delete').service('lifecycle-hooks').register('afterDeletePermanently', async (payload) => {
-  // Runs after permanent deletion
-});
+strapi
+  .plugin('soft-delete')
+  .service('lifecycle-hooks')
+  .register('afterDeletePermanently', async (payload) => {
+    // Runs after permanent deletion
+  });
 ```
 
 ### RBAC Permissions
 
 Permission UIDs have changed to avoid collision with Content Manager:
 
-| v4 | v5 |
-|----|----|
-| `plugin::soft-delete.explorer.read` | `plugin::soft-delete.explorer.soft-deleted-read` |
-| `plugin::soft-delete.explorer.restore` | `plugin::soft-delete.explorer.restore` (unchanged) |
+| v4                                                | v5                                                            |
+| ------------------------------------------------- | ------------------------------------------------------------- |
+| `plugin::soft-delete.explorer.read`               | `plugin::soft-delete.explorer.soft-deleted-read`              |
+| `plugin::soft-delete.explorer.restore`            | `plugin::soft-delete.explorer.restore` (unchanged)            |
 | `plugin::soft-delete.explorer.delete-permanently` | `plugin::soft-delete.explorer.delete-permanently` (unchanged) |
 
 Existing role permissions will need to be re-granted for the renamed permission after upgrading.

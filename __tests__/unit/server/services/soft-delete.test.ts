@@ -82,9 +82,27 @@ describe('soft-delete service', () => {
 
     it('deduplicates entries with same documentId (D&P)', async () => {
       const entries = [
-        { id: 1, documentId: 'doc-1', _softDeletedAt: '2026-01-01', _softDeletedById: 1, _softDeletedByType: 'admin' },
-        { id: 2, documentId: 'doc-1', _softDeletedAt: '2026-01-01', _softDeletedById: 1, _softDeletedByType: 'admin' },
-        { id: 3, documentId: 'doc-2', _softDeletedAt: '2026-01-01', _softDeletedById: 1, _softDeletedByType: 'admin' },
+        {
+          id: 1,
+          documentId: 'doc-1',
+          _softDeletedAt: '2026-01-01',
+          _softDeletedById: 1,
+          _softDeletedByType: 'admin',
+        },
+        {
+          id: 2,
+          documentId: 'doc-1',
+          _softDeletedAt: '2026-01-01',
+          _softDeletedById: 1,
+          _softDeletedByType: 'admin',
+        },
+        {
+          id: 3,
+          documentId: 'doc-2',
+          _softDeletedAt: '2026-01-01',
+          _softDeletedById: 1,
+          _softDeletedByType: 'admin',
+        },
       ];
       mock.getQueryForUid(UID).findMany.mockResolvedValue(entries);
       const service = createService();

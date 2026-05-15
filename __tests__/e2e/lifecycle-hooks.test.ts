@@ -37,10 +37,9 @@ describe('lifecycle hooks during normal operations', () => {
     const article = await findArticleBySlug(slug);
     await clearLifecycleLog();
 
-    await api.put(
-      `/content-manager/collection-types/api::article.article/${article!.documentId}`,
-      { title: 'Updated Title' },
-    );
+    await api.put(`/content-manager/collection-types/api::article.article/${article!.documentId}`, {
+      title: 'Updated Title',
+    });
 
     const log = await getLifecycleLog();
     expect(log).toContain('beforeUpdate');

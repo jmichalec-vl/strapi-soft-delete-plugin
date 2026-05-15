@@ -9,12 +9,10 @@ beforeEach(() => {
   mock = createMockStrapi();
 
   mock.registerService('soft-delete', 'soft-delete', {
-    findMany: vi
-      .fn()
-      .mockResolvedValue({
-        results: [],
-        pagination: { page: 1, pageSize: 10, total: 0, pageCount: 0 },
-      }),
+    findMany: vi.fn().mockResolvedValue({
+      results: [],
+      pagination: { page: 1, pageSize: 10, total: 0, pageCount: 0 },
+    }),
     findOne: vi.fn().mockResolvedValue(null),
     restore: vi.fn().mockResolvedValue({ documentId: 'doc-1', entries: [] }),
     deletePermanently: vi.fn().mockResolvedValue({ documentId: 'doc-1', entries: [] }),

@@ -120,6 +120,6 @@ describe('soft-delete preserves all component types for restore', () => {
     expect(links[1].url).toBe('https://example.com/blog');
 
     const blocks = entry.blocks as unknown as Array<Record<string, unknown>>;
-    expect((blocks[0]).heading).toBe('Welcome');
+    expect(blocks[0].heading).toBe('Welcome');
   });
 });

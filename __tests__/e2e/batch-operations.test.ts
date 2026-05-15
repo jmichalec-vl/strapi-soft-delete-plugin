@@ -2,10 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 import { login, api } from './helpers/api-client';
 import { createArticle, findArticleBySlug, deleteArticle } from './helpers/content-manager';
-import {
-  getSoftDeletedArticles,
-  findSoftDeletedArticle,
-} from './helpers/soft-delete-api';
+import { findSoftDeletedArticle } from './helpers/soft-delete-api';
 
 const uniqueSlug = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -17,11 +14,7 @@ beforeAll(async () => {
 });
 
 describe('batch restore', () => {
-  const slugs = [
-    uniqueSlug('batch-r1'),
-    uniqueSlug('batch-r2'),
-    uniqueSlug('batch-r3'),
-  ];
+  const slugs = [uniqueSlug('batch-r1'), uniqueSlug('batch-r2'), uniqueSlug('batch-r3')];
   const documentIds: string[] = [];
 
   it('creates and soft-deletes 3 articles', async () => {
@@ -57,11 +50,7 @@ describe('batch restore', () => {
 });
 
 describe('batch permanent delete', () => {
-  const slugs = [
-    uniqueSlug('batch-d1'),
-    uniqueSlug('batch-d2'),
-    uniqueSlug('batch-d3'),
-  ];
+  const slugs = [uniqueSlug('batch-d1'), uniqueSlug('batch-d2'), uniqueSlug('batch-d3')];
   const documentIds: string[] = [];
 
   it('creates and soft-deletes 3 articles', async () => {

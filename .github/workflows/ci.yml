@@ -79,6 +79,7 @@ jobs:
         run: npx strapi build
         env:
           BROWSER: none
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # Start Strapi in background
       - name: Start Strapi

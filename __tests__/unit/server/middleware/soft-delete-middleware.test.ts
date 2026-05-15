@@ -211,7 +211,10 @@ describe('soft-delete-middleware', () => {
     it('injects soft-delete filter and merges with existing filters', async () => {
       const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue([]);
-      const ctx = createMiddlewareContext({ action: 'findMany', params: { filters: { title: 'test' } } });
+      const ctx = createMiddlewareContext({
+        action: 'findMany',
+        params: { filters: { title: 'test' } },
+      });
 
       await middleware(ctx as never, next);
 
