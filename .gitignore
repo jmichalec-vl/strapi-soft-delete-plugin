@@ -4,3 +4,4 @@ dist/
 yalc.lock
 *.tsbuildinfo
 coverage/
+.DS_Store
