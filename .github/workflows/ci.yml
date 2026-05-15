@@ -91,10 +91,31 @@ jobs:
         working-directory: __tests__/e2e/strapi-app
         run: mkdir -p public/uploads .tmp
 
-      # Start Strapi in background
-      - name: Start Strapi
+      # Start Strapi, wait for health, run E2E tests
+      - name: Start Strapi and run E2E tests
         working-directory: __tests__/e2e/strapi-app
-        run: npx strapi start &
+        run: |
+          npx strapi start &
+          STRAPI_PID=$!
+
+          echo "Waiting for Strapi to start (PID: $STRAPI_PID)..."
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:1337/_health > /dev/null 2>&1; then
+              echo "Strapi is ready after ${i}s!"
+              break
+            fi
+            if [ "$i" -eq 90 ]; then
+              echo "Strapi failed to start within 90s"
+              kill $STRAPI_PID 2>/dev/null
+              exit 1
+            fi
+            sleep 1
+          done
+
+          cd ../../..
+          npm run test:e2e
+
+          kill $STRAPI_PID 2>/dev/null
         env:
           HOST: 0.0.0.0
           PORT: 1337
@@ -103,23 +124,3 @@ jobs:
           API_TOKEN_SALT: test-api-token-salt
           TRANSFER_TOKEN_SALT: test-transfer-token-salt
           JWT_SECRET: test-jwt-secret
-
-      # Wait for Strapi to be ready
-      - name: Wait for Strapi
-        run: |
-          echo "Waiting for Strapi to start..."
-          for i in $(seq 1 60); do
-            if curl -s http://127.0.0.1:1337/_health | grep -q ''; then
-              echo "Strapi is ready!"
-              break
-            fi
-            if [ "$i" -eq 60 ]; then
-              echo "Strapi failed to start"
-              exit 1
-            fi
-            sleep 1
-          done
-
-      # Run E2E tests
-      - name: Run E2E tests
-        run: npm run test:e2e
