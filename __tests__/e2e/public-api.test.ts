@@ -29,7 +29,7 @@ beforeAll(async () => {
     const role = (roleData as { role: { permissions: Record<string, unknown> } }).role;
 
     // Enable find and findOne for articles
-    const permissions = role.permissions as Record<string, Record<string, Record<string, { enabled: boolean }>>>;
+    const permissions = role.permissions as Record<string, Record<string, Record<string, Record<string, unknown>>>>;
     if (permissions?.['api::article']?.controllers?.article) {
       permissions['api::article'].controllers.article.find = { enabled: true };
       permissions['api::article'].controllers.article.findOne = { enabled: true };
