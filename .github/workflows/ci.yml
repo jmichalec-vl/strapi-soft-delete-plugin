@@ -80,6 +80,11 @@ jobs:
         env:
           BROWSER: none
           NODE_OPTIONS: --max-old-space-size=4096
+          APP_KEYS: testKey1,testKey2
+          ADMIN_JWT_SECRET: test-admin-jwt-secret
+          API_TOKEN_SALT: test-api-token-salt
+          TRANSFER_TOKEN_SALT: test-transfer-token-salt
+          JWT_SECRET: test-jwt-secret
 
       # Ensure required directories exist
       - name: Create required directories
@@ -91,7 +96,13 @@ jobs:
         working-directory: __tests__/e2e/strapi-app
         run: npx strapi start &
         env:
-          NODE_ENV: production
+          HOST: 0.0.0.0
+          PORT: 1337
+          APP_KEYS: testKey1,testKey2
+          ADMIN_JWT_SECRET: test-admin-jwt-secret
+          API_TOKEN_SALT: test-api-token-salt
+          TRANSFER_TOKEN_SALT: test-transfer-token-salt
+          JWT_SECRET: test-jwt-secret
 
       # Wait for Strapi to be ready
       - name: Wait for Strapi
