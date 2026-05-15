@@ -25,7 +25,7 @@ Drop-in replacement for `strapi-plugin-soft-delete` with significant improvement
 
 | Strapi Version | Plugin Version                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------- |
-| ^5.0.0         | 1.x                                                                                         |
+| ^5.0.0         | 0.x                                                                                         |
 | ^4.x           | Use [strapi-plugin-soft-delete](https://github.com/ChristopheCVB/strapi-plugin-soft-delete) |
 
 ## Installation
