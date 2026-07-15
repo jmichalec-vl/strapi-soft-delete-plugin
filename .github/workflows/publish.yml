@@ -40,6 +40,10 @@ jobs:
       # Build the plugin
       - run: npm run build
 
+      # Guard against accidentally bundling dependencies (0.1.0 and 0.2.0
+      # shipped a vendored @strapi/utils graph, ~2.3 MB instead of ~300 kB)
+      - run: npm run size-check
+
       # Bump version
       - name: Bump version
         run: |
