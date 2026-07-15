@@ -152,7 +152,7 @@ Permission UIDs have changed to avoid collision with Content Manager:
 | `plugin::soft-delete.explorer.restore`            | `plugin::soft-delete.explorer.restore` (unchanged)            |
 | `plugin::soft-delete.explorer.delete-permanently` | `plugin::soft-delete.explorer.delete-permanently` (unchanged) |
 
-Existing role permissions will need to be re-granted for the renamed permission after upgrading.
+**Since 0.2.0 this is migrated automatically:** on first boot the plugin rewrites existing `admin::permission` rows from `plugin::soft-delete.explorer.read` to `plugin::soft-delete.explorer.soft-deleted-read`, so every role keeps its trash access — no manual re-granting needed. The migration is idempotent and runs once (guarded by the plugin store's migration version). The other v4 action names (`read`, `settings`, `explorer.restore`, `explorer.delete-permanently`) are unchanged and need no migration.
 
 ## New Features in v5
 
@@ -176,3 +176,7 @@ In 0.1.x, exceptions thrown by lifecycle hook handlers were caught and logged, a
 - A failing handler stops the handler chain — later handlers for the same hook do not run.
 
 If you relied on hooks failing silently (e.g. best-effort logging or notifications), wrap your handler body in `try/catch`.
+
+### RBAC permission rows are migrated on first boot
+
+0.1.x recognized only the new `plugin::soft-delete.explorer.soft-deleted-read` action, silently dropping trash access for roles that still carried the v4 `plugin::soft-delete.explorer.read` rows. 0.2.0 rewrites those rows automatically on its first boot (see [RBAC Permissions](#rbac-permissions) above). No manual action needed.

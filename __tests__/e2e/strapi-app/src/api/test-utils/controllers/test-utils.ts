@@ -57,6 +57,40 @@ export default {
     }
   },
 
+  // Seeds an admin::permission row with the v4 action name, runs the plugin's
+  // permission migration, and reports the row's action before/after.
+  // Direct service invocation: the boot-time trigger (migrateFromV4IfNeeded)
+  // already ran against this fresh DB, so we exercise the migration step itself.
+  async runV4PermissionMigration(ctx) {
+    const V4_ACTION = 'plugin::soft-delete.explorer.read';
+
+    const superAdminRole = await strapi.db.query('admin::role').findOne({
+      where: { code: 'strapi-super-admin' },
+    });
+
+    const seeded = await strapi.db.query('admin::permission').create({
+      data: {
+        action: V4_ACTION,
+        actionParameters: {},
+        subject: 'api::article.article',
+        properties: {},
+        conditions: [],
+        role: superAdminRole.id,
+      },
+    });
+
+    await strapi.plugin('soft-delete').service('migration').migratePermissionActions();
+
+    const migrated = await strapi.db.query('admin::permission').findOne({
+      where: { id: seeded.id },
+    });
+
+    // Clean up the seeded row so repeated runs stay isolated
+    await strapi.db.query('admin::permission').delete({ where: { id: seeded.id } });
+
+    ctx.body = { seededAction: V4_ACTION, migratedAction: migrated.action };
+  },
+
   // Compares a plain db.query read (soft-delete filter ON) with the same read
   // inside withSoftDeleted (filter OFF) for a given document.
   async compareSoftDeletedReads(ctx) {

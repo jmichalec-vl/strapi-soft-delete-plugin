@@ -48,5 +48,13 @@ export default {
         auth: false,
       },
     },
+    {
+      method: 'POST',
+      path: '/test-utils/v4-permission-migration',
+      handler: 'test-utils.runV4PermissionMigration',
+      config: {
+        auth: false,
+      },
+    },
   ],
 };
