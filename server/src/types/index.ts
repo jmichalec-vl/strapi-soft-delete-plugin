@@ -15,3 +15,10 @@ export type {
   LifecycleHookResult,
   LifecycleHookHandlerResult,
 } from './soft-deleted-entry';
+
+export type {
+  SoftDeleteApi,
+  SoftDeleteApiOptions,
+  SoftDeleteFindParams,
+  SoftDeleteOperationResult,
+} from './public-api';

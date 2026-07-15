@@ -156,6 +156,81 @@ Notes:
 - The plugin intercepts `delete` outside Strapi's document-service transaction, so an `after*` hook throw cannot roll the operation back. If you need atomic behavior, do the cascading work inside the `after*` hook and compensate on failure (e.g. restore the entry).
 - For user-visible messages, throw `errors.ApplicationError` (HTTP 400) or `errors.PolicyError` (HTTP 403) from `@strapi/utils`. A plain `errors.ForbiddenError` reaches the caller as a generic `"Forbidden"` — Strapi's route layer masks its message.
 
+## Programmatic API
+
+Server-side code (bootstrap, cron jobs, other plugins) can drive soft-delete operations through the `api` service:
+
+```typescript
+const api = strapi.plugin('soft-delete').service('api');
+
+// Same code path as an intercepted documents().delete — hooks + events fire
+await api.softDelete('api::article.article', documentId);
+
+// Fires beforeRestore/afterRestore; respects restoration-behavior settings
+await api.restore('api::article.article', documentId);
+
+// Includes component/dynamic-zone cleanup
+await api.deletePermanently('api::article.article', documentId);
+
+// Paginated trash listing (only soft-deleted documents)
+const trashed = await api.findSoftDeleted('api::article.article', { page: 1, pageSize: 10 });
+
+// Run reads with the soft-delete filter off — the ONLY supported way to see trashed rows
+const rows = await api.withSoftDeleted(() =>
+  strapi.db.query('api::article.article').findMany({ where: { _softDeletedAt: { $ne: null } } }),
+);
+```
+
+Notes:
+
+- Every method throws an `ApplicationError` when `uid` is not an `api::` content type.
+- `softDelete`, `restore`, and `deletePermanently` run the plugin lifecycle hooks exactly like the admin operations do — the returned promise **rejects** when a `before*` handler throws or returns `{ cancel: true }`, and when an `after*` handler throws (see [Hook Error Semantics](#hook-error-semantics)).
+- Outside an HTTP request (cron, CLI, bootstrap), pass `{ auth: { id, strategy } }` as the last argument to attribute the operation; by default attribution is resolved from the current request.
+- Types ship with the package: `import type { SoftDeleteApi } from 'strapi-soft-delete-plugin'`.
+
+### Worked example: cascading soft delete and restore
+
+Soft-delete a product's variants together with the product, and bring them back on restore:
+
+```typescript
+// src/index.ts
+export default {
+  async bootstrap({ strapi }) {
+    const hooks = strapi.plugin('soft-delete').service('lifecycle-hooks');
+    const api = strapi.plugin('soft-delete').service('api');
+
+    hooks.register('afterSoftDelete', async ({ uid, documentId }) => {
+      if (uid !== 'api::product.product') return;
+
+      const variants = await strapi.db.query('api::variant.variant').findMany({
+        where: { product: { documentId } },
+      });
+
+      for (const variant of variants) {
+        await api.softDelete('api::variant.variant', variant.documentId);
+      }
+    });
+
+    hooks.register('afterRestore', async ({ uid, documentId }) => {
+      if (uid !== 'api::product.product') return;
+
+      // Trashed variants are invisible to normal reads — look them up with the filter off
+      const variants = await api.withSoftDeleted(() =>
+        strapi.db.query('api::variant.variant').findMany({
+          where: { product: { documentId }, _softDeletedAt: { $ne: null } },
+        }),
+      );
+
+      for (const variant of variants) {
+        await api.restore('api::variant.variant', variant.documentId);
+      }
+    });
+  },
+};
+```
+
+A failure while cascading (e.g. one `api.softDelete` call rejects) propagates out of the `after*` hook and fails the original operation — see the error-semantics table above for what happens to the already-written parent.
+
 ## How It Works
 
 1. **Schema injection** — adds three hidden fields (`_softDeletedAt`, `_softDeletedById`, `_softDeletedByType`) to all `api::*` content types at boot time

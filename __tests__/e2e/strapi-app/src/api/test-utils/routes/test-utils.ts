@@ -32,5 +32,21 @@ export default {
         auth: false,
       },
     },
+    {
+      method: 'POST',
+      path: '/test-utils/public-api',
+      handler: 'test-utils.invokePublicApi',
+      config: {
+        auth: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/test-utils/public-api/compare-reads',
+      handler: 'test-utils.compareSoftDeletedReads',
+      config: {
+        auth: false,
+      },
+    },
   ],
 };

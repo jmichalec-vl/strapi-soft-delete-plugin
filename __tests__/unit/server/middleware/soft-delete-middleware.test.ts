@@ -18,6 +18,9 @@ beforeEach(() => {
   mock.registerService('soft-delete', 'db-subscriber', {
     bypass: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
   });
+  mock.registerService('soft-delete', 'auth-resolver', {
+    resolveAuth: vi.fn().mockReturnValue({ id: 1, strategy: 'admin' }),
+  });
 });
 
 // Dynamic import to pick up the global strapi
@@ -60,15 +63,12 @@ describe('soft-delete-middleware', () => {
   });
 
   describe('delete action', () => {
-    it('converts delete to soft-delete update', async () => {
+    it('delegates delete to the soft-delete service with the request auth', async () => {
       const middleware = await importMiddleware();
       const next = vi.fn();
-      const entries = [{ id: 1, documentId: 'doc-1', title: 'Test' }];
-
-      mock
-        .getQueryForUid('api::article.article')
-        .findMany.mockResolvedValueOnce(entries)
-        .mockResolvedValueOnce([{ ...entries[0], _softDeletedAt: '2026-01-01T00:00:00.000Z' }]);
+      const operationResult = { documentId: 'doc-1', entries: [{ id: 1, documentId: 'doc-1' }] };
+      const softDeleteDocument = vi.fn().mockResolvedValue(operationResult);
+      mock.registerService('soft-delete', 'soft-delete', { softDeleteDocument });
 
       const ctx = createMiddlewareContext({
         action: 'delete',
@@ -78,48 +78,19 @@ describe('soft-delete-middleware', () => {
       const result = await middleware(ctx as never, next);
 
       expect(next).not.toHaveBeenCalled();
-      expect(mock.strapi.db.lifecycles.disable).toHaveBeenCalled();
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
-      expect(mock.getQueryForUid('api::article.article').updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { documentId: 'doc-1' },
-          data: expect.objectContaining({
-            _softDeletedAt: expect.any(String),
-            _softDeletedById: 1,
-            _softDeletedByType: 'admin',
-          }),
-        }),
-      );
-      expect(result).toHaveProperty('documentId', 'doc-1');
-      expect(result).toHaveProperty('entries');
-    });
-
-    it('returns empty entries when document not found', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-
-      mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce([]);
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'nonexistent' },
+      expect(softDeleteDocument).toHaveBeenCalledWith('api::article.article', 'doc-1', {
+        id: 1,
+        strategy: 'admin',
       });
-
-      const result = await middleware(ctx as never, next);
-
-      expect(result).toEqual({ documentId: 'nonexistent', entries: [] });
-      expect(mock.getQueryForUid('api::article.article').updateMany).not.toHaveBeenCalled();
+      expect(result).toBe(operationResult);
     });
 
-    it('propagates the error when beforeSoftDelete fire() rejects', async () => {
+    it('propagates rejections from the soft-delete service (hook veto)', async () => {
       const middleware = await importMiddleware();
       const next = vi.fn();
-      const entries = [{ id: 1, documentId: 'doc-1' }];
       const hookError = new Error('Operation cancelled by beforeSoftDelete hook');
-
-      mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce(entries);
-      mock.registerService('soft-delete', 'lifecycle-hooks', {
-        fire: vi.fn().mockRejectedValue(hookError),
+      mock.registerService('soft-delete', 'soft-delete', {
+        softDeleteDocument: vi.fn().mockRejectedValue(hookError),
       });
 
       const ctx = createMiddlewareContext({
@@ -128,81 +99,6 @@ describe('soft-delete-middleware', () => {
       });
 
       await expect(middleware(ctx as never, next)).rejects.toBe(hookError);
-      expect(mock.getQueryForUid('api::article.article').updateMany).not.toHaveBeenCalled();
-    });
-
-    it('fires afterSoftDelete hook after update', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-      const fireFn = vi.fn().mockResolvedValue(false);
-      const entries = [{ id: 1, documentId: 'doc-1' }];
-
-      mock
-        .getQueryForUid('api::article.article')
-        .findMany.mockResolvedValueOnce(entries)
-        .mockResolvedValueOnce(entries);
-      mock.registerService('soft-delete', 'lifecycle-hooks', { fire: fireFn });
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'doc-1' },
-      });
-
-      await middleware(ctx as never, next);
-
-      expect(fireFn).toHaveBeenCalledWith('beforeSoftDelete', expect.any(Object));
-      expect(fireFn).toHaveBeenCalledWith('afterSoftDelete', expect.any(Object));
-    });
-
-    it('emits entry.delete event for each soft-deleted entry', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-      const emitFn = vi.fn().mockResolvedValue(undefined);
-      const entries = [
-        { id: 1, documentId: 'doc-1' },
-        { id: 2, documentId: 'doc-1' },
-      ];
-
-      mock
-        .getQueryForUid('api::article.article')
-        .findMany.mockResolvedValueOnce(entries)
-        .mockResolvedValueOnce(entries);
-      mock.registerService('soft-delete', 'event-emitter', { emit: emitFn });
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'doc-1' },
-      });
-
-      await middleware(ctx as never, next);
-
-      expect(emitFn).toHaveBeenCalledTimes(2);
-      expect(emitFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          uid: 'api::article.article',
-          event: 'entry.delete',
-          action: 'soft-delete',
-        }),
-      );
-    });
-
-    it('re-enables lifecycles even when updateMany throws', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-      const entries = [{ id: 1, documentId: 'doc-1' }];
-
-      mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce(entries);
-      mock
-        .getQueryForUid('api::article.article')
-        .updateMany.mockRejectedValueOnce(new Error('DB error'));
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'doc-1' },
-      });
-
-      await expect(middleware(ctx as never, next)).rejects.toThrow('DB error');
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
     });
   });
 

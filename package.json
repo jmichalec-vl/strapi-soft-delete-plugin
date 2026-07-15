@@ -3,8 +3,10 @@
   "version": "0.1.1",
   "description": "Soft delete plugin for Strapi v5 — never lose content again. Drop-in replacement for strapi-plugin-soft-delete with pagination, lifecycle hooks, TTL auto-purge, and full test coverage.",
   "license": "MIT",
+  "types": "./types.d.ts",
   "exports": {
     "./package.json": "./package.json",
+    ".": "./types.d.ts",
     "./strapi-admin": {
       "source": "./admin/src/index.ts",
       "import": "./dist/admin/index.mjs",
@@ -102,6 +104,7 @@
     "dist",
     "server",
     "admin",
+    "types.d.ts",
     "package.json",
     "README.md",
     "LICENSE.md",

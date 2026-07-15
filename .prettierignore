@@ -7,3 +7,4 @@ __tests__/e2e/strapi-app/types
 __tests__/e2e/strapi-app/node_modules
 __tests__/e2e/strapi-app/dist
 __tests__/e2e/strapi-app/.tmp
+__tests__/e2e/strapi-app/.strapi-updater.json

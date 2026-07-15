@@ -1,7 +1,6 @@
 import type { Modules } from '@strapi/types';
 
 import { PLUGIN_ID, SOFT_DELETE_FIELD_NAMES } from '../constants';
-import type { ResolvedAuth } from '../types';
 import { supportsContentType } from '../utils';
 
 const { DELETED_AT, DELETED_BY_ID, DELETED_BY_TYPE } = SOFT_DELETE_FIELD_NAMES;
@@ -21,18 +20,6 @@ const stripSoftDeleteFields = (data: Record<string, unknown>): void => {
   delete data[DELETED_BY_ID];
   delete data[DELETED_BY_TYPE];
 };
-
-const resolveAuthFromContext = (): ResolvedAuth => {
-  const requestContext = strapi.requestContext.get();
-  const auth = requestContext?.state?.auth;
-
-  return {
-    id: auth?.credentials?.id ?? null,
-    strategy: auth?.strategy?.name ?? 'unknown',
-  } as ResolvedAuth;
-};
-
-const getBypass = () => strapi.plugin(PLUGIN_ID).service('db-subscriber').bypass;
 
 /**
  * Document Service middleware.
@@ -102,76 +89,21 @@ interface AnyDocument {
   [key: string]: unknown;
 }
 
+/**
+ * Delegates to the soft-delete service so the intercepted delete and the
+ * programmatic API (`service('api').softDelete`) share ONE code path —
+ * lifecycle hooks and events fire identically for both. Rejects when a hook
+ * handler throws or cancels; the delete request then fails with that error.
+ */
 const handleDelete = async (
   ctx: Parameters<Middleware>[0],
 ): Promise<{ documentId: string; entries: AnyDocument[] }> => {
   const { uid } = ctx;
   const { documentId } = ctx.params as { documentId: string };
 
-  const auth = resolveAuthFromContext();
-  const bypass = getBypass();
+  const auth = strapi.plugin(PLUGIN_ID).service('auth-resolver').resolveAuth();
 
-  const lifecycleHooksService = strapi.plugin(PLUGIN_ID).service('lifecycle-hooks');
-  const eventEmitterService = strapi.plugin(PLUGIN_ID).service('event-emitter');
-
-  // Bypass our subscriber filter to find all entries for this document
-  const entriesToSoftDelete = await bypass(() =>
-    strapi.db.query(uid).findMany({ where: { documentId } }),
-  );
-
-  if (entriesToSoftDelete.length === 0) {
-    return { documentId, entries: [] };
-  }
-
-  // Throws on handler error or { cancel: true } — the delete request then fails
-  // with that error instead of reporting a silent empty success.
-  await lifecycleHooksService.fire('beforeSoftDelete', {
-    uid,
-    documentId,
-    entries: entriesToSoftDelete,
-    auth,
-  });
-
-  const now = new Date().toISOString();
-
-  // Disable ALL lifecycles for the update — we don't want beforeUpdate/afterUpdate
-  // to fire during soft-delete. Only our custom hooks should run.
-  strapi.db.lifecycles.disable();
-  try {
-    await strapi.db.query(uid).updateMany({
-      where: { documentId },
-      data: {
-        [DELETED_AT]: now,
-        [DELETED_BY_ID]: auth.id,
-        [DELETED_BY_TYPE]: auth.strategy,
-      },
-    });
-  } finally {
-    strapi.db.lifecycles.enable();
-  }
-
-  // Bypass subscriber to fetch the now-soft-deleted entries
-  const softDeletedEntries = await bypass(() =>
-    strapi.db.query(uid).findMany({ where: { documentId } }),
-  );
-
-  await lifecycleHooksService.fire('afterSoftDelete', {
-    uid,
-    documentId,
-    entries: softDeletedEntries,
-    auth,
-  });
-
-  for (const entry of softDeletedEntries) {
-    await eventEmitterService.emit({
-      uid,
-      event: 'entry.delete',
-      action: 'soft-delete',
-      entity: entry,
-    });
-  }
-
-  return { documentId, entries: softDeletedEntries };
+  return strapi.plugin(PLUGIN_ID).service('soft-delete').softDeleteDocument(uid, documentId, auth);
 };
 
 export default softDeleteMiddleware;

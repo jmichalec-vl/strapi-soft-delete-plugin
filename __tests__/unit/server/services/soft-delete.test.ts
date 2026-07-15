@@ -41,6 +41,110 @@ const createService = () => softDeleteFactory({ strapi: mock.strapi as never });
 const UID = 'api::article.article';
 
 describe('soft-delete service', () => {
+  describe('softDeleteDocument', () => {
+    const AUTH = { id: 1, strategy: 'admin' } as const;
+
+    it('marks every entry of the document as soft-deleted', async () => {
+      const entries = [{ id: 1, documentId: 'doc-1', title: 'Test' }];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce([{ ...entries[0], _softDeletedAt: '2026-01-01T00:00:00.000Z' }]);
+      const service = createService();
+
+      const result = await service.softDeleteDocument(UID, 'doc-1', AUTH);
+
+      expect(mock.strapi.db.lifecycles.disable).toHaveBeenCalled();
+      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
+      expect(mock.getQueryForUid(UID).updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { documentId: 'doc-1' },
+          data: expect.objectContaining({
+            _softDeletedAt: expect.any(String),
+            _softDeletedById: 1,
+            _softDeletedByType: 'admin',
+          }),
+        }),
+      );
+      expect(result.documentId).toBe('doc-1');
+      expect(result.entries).toHaveLength(1);
+    });
+
+    it('returns empty entries without writing when the document has none', async () => {
+      mock.getQueryForUid(UID).findMany.mockResolvedValueOnce([]);
+      const service = createService();
+
+      const result = await service.softDeleteDocument(UID, 'nonexistent', AUTH);
+
+      expect(result).toEqual({ documentId: 'nonexistent', entries: [] });
+      expect(mock.getQueryForUid(UID).updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects without writing when beforeSoftDelete fire() rejects', async () => {
+      const hookError = new Error('Operation cancelled by beforeSoftDelete hook');
+      mock.getQueryForUid(UID).findMany.mockResolvedValueOnce([{ id: 1, documentId: 'doc-1' }]);
+      mock.registerService('soft-delete', 'lifecycle-hooks', {
+        fire: vi.fn().mockRejectedValue(hookError),
+      });
+      const service = createService();
+
+      await expect(service.softDeleteDocument(UID, 'doc-1', AUTH)).rejects.toBe(hookError);
+      expect(mock.getQueryForUid(UID).updateMany).not.toHaveBeenCalled();
+    });
+
+    it('fires beforeSoftDelete and afterSoftDelete with the given auth', async () => {
+      const fireFn = vi.fn().mockResolvedValue(false);
+      const entries = [{ id: 1, documentId: 'doc-1' }];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce(entries);
+      mock.registerService('soft-delete', 'lifecycle-hooks', { fire: fireFn });
+      const service = createService();
+
+      await service.softDeleteDocument(UID, 'doc-1', AUTH);
+
+      expect(fireFn).toHaveBeenCalledWith(
+        'beforeSoftDelete',
+        expect.objectContaining({ auth: AUTH }),
+      );
+      expect(fireFn).toHaveBeenCalledWith(
+        'afterSoftDelete',
+        expect.objectContaining({ auth: AUTH }),
+      );
+    });
+
+    it('emits an entry.delete event per soft-deleted entry', async () => {
+      const emitFn = vi.fn().mockResolvedValue(undefined);
+      const entries = [
+        { id: 1, documentId: 'doc-1' },
+        { id: 2, documentId: 'doc-1' },
+      ];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce(entries);
+      mock.registerService('soft-delete', 'event-emitter', { emit: emitFn });
+      const service = createService();
+
+      await service.softDeleteDocument(UID, 'doc-1', AUTH);
+
+      expect(emitFn).toHaveBeenCalledTimes(2);
+      expect(emitFn).toHaveBeenCalledWith(
+        expect.objectContaining({ uid: UID, event: 'entry.delete', action: 'soft-delete' }),
+      );
+    });
+
+    it('re-enables lifecycles when the update throws', async () => {
+      mock.getQueryForUid(UID).findMany.mockResolvedValueOnce([{ id: 1, documentId: 'doc-1' }]);
+      mock.getQueryForUid(UID).updateMany.mockRejectedValueOnce(new Error('DB error'));
+      const service = createService();
+
+      await expect(service.softDeleteDocument(UID, 'doc-1', AUTH)).rejects.toThrow('DB error');
+      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
+    });
+  });
+
   describe('findMany', () => {
     it('returns paginated results with enriched entries', async () => {
       const entries = [

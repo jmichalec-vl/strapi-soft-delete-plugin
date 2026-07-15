@@ -1,21 +1,20 @@
 import type { Core, UID } from '@strapi/types';
 
 import { PLUGIN_ID, SOFT_DELETE_FIELD_NAMES } from '../constants';
-import type { SoftDeletedEntry, PaginatedResult, PluginSettings, ResolvedAuth } from '../types';
+import type {
+  SoftDeletedEntry,
+  PaginatedResult,
+  PluginSettings,
+  ResolvedAuth,
+  SoftDeleteFindParams,
+  SoftDeleteOperationResult,
+} from '../types';
 
 const { DELETED_AT, DELETED_BY_ID, DELETED_BY_TYPE } = SOFT_DELETE_FIELD_NAMES;
 
-export interface FindManyParams {
-  readonly page?: number;
-  readonly pageSize?: number;
-  readonly sort?: string;
-  readonly filters?: Record<string, unknown>;
-}
+export type FindManyParams = SoftDeleteFindParams;
 
-export interface OperationResult {
-  readonly documentId: string;
-  readonly entries: readonly Record<string, unknown>[];
-}
+export type OperationResult = SoftDeleteOperationResult;
 
 /**
  * Get attribute names that are components or dynamic zones for a content type.
@@ -166,6 +165,83 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
     }
   };
 
+  /**
+   * Core soft-delete path — shared by the Document Service middleware
+   * (intercepted `documents(uid).delete()`) and the programmatic API.
+   *
+   * Fires `beforeSoftDelete`/`afterSoftDelete` hooks and emits an
+   * `entry.delete` event per affected entry. Rejects when a hook handler
+   * throws or a `before*` handler cancels — the write does not happen.
+   */
+  const softDeleteDocument = async (
+    uid: string,
+    documentId: string,
+    auth: ResolvedAuth,
+  ): Promise<OperationResult> => {
+    const bypass = getBypass();
+    const lifecycleHooks = getLifecycleHooks();
+    const eventEmitter = getEventEmitter();
+
+    // Bypass our subscriber filter to find all entries for this document
+    const entriesToSoftDelete = await bypass(() =>
+      strapi.db.query(uid).findMany({ where: { documentId } }),
+    );
+
+    if (entriesToSoftDelete.length === 0) {
+      return { documentId, entries: [] };
+    }
+
+    // Throws on handler error or { cancel: true } — the delete request then
+    // fails with that error instead of reporting a silent empty success.
+    await lifecycleHooks.fire('beforeSoftDelete', {
+      uid,
+      documentId,
+      entries: entriesToSoftDelete,
+      auth,
+    });
+
+    const now = new Date().toISOString();
+
+    // Disable ALL lifecycles for the update — we don't want beforeUpdate/afterUpdate
+    // to fire during soft-delete. Only our custom hooks should run.
+    strapi.db.lifecycles.disable();
+    try {
+      await strapi.db.query(uid).updateMany({
+        where: { documentId },
+        data: {
+          [DELETED_AT]: now,
+          [DELETED_BY_ID]: auth.id,
+          [DELETED_BY_TYPE]: auth.strategy,
+        },
+      });
+    } finally {
+      strapi.db.lifecycles.enable();
+    }
+
+    // Bypass subscriber to fetch the now-soft-deleted entries
+    const softDeletedEntries = await bypass(() =>
+      strapi.db.query(uid).findMany({ where: { documentId } }),
+    );
+
+    await lifecycleHooks.fire('afterSoftDelete', {
+      uid,
+      documentId,
+      entries: softDeletedEntries,
+      auth,
+    });
+
+    for (const entry of softDeletedEntries) {
+      await eventEmitter.emit({
+        uid,
+        event: 'entry.delete',
+        action: 'soft-delete',
+        entity: entry,
+      });
+    }
+
+    return { documentId, entries: softDeletedEntries };
+  };
+
   const findMany = async (
     uid: string,
     params: FindManyParams = {},
@@ -224,6 +300,7 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
     uid: string,
     documentId: string,
     kind: string,
+    authOverride?: ResolvedAuth,
   ): Promise<OperationResult | null> => {
     const bypass = getBypass();
     const lifecycleHooks = getLifecycleHooks();
@@ -238,7 +315,7 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
 
     if (entriesToRestore.length === 0) return null;
 
-    const auth = getAuthResolver().resolveAuth();
+    const auth = authOverride ?? getAuthResolver().resolveAuth();
 
     // Throws on handler error or { cancel: true } — the restore then fails with that error
     await lifecycleHooks.fire('beforeRestore', {
@@ -297,11 +374,12 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
   const deletePermanently = async (
     uid: string,
     documentId: string,
+    authOverride?: ResolvedAuth,
   ): Promise<OperationResult | null> => {
     const bypass = getBypass();
     const lifecycleHooks = getLifecycleHooks();
     const eventEmitter = getEventEmitter();
-    const auth = getAuthResolver().resolveAuth();
+    const auth = authOverride ?? getAuthResolver().resolveAuth();
 
     const entriesToDelete = await bypass(() =>
       strapi.db.query(uid).findMany({ where: { documentId } }),
@@ -386,6 +464,7 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
   };
 
   return {
+    softDeleteDocument,
     findMany,
     findOne,
     restore,
