@@ -43,3 +43,15 @@ export interface LifecycleHookPayload {
   readonly entries: readonly Record<string, unknown>[];
   readonly auth: ResolvedAuth;
 }
+
+/**
+ * Return value of a lifecycle hook handler.
+ * `before*` handlers may return `{ cancel: true }` to abort the operation —
+ * the plugin then throws `error` if provided, or a default ForbiddenError.
+ */
+export interface LifecycleHookResult {
+  readonly cancel?: boolean;
+  readonly error?: Error;
+}
+
+export type LifecycleHookHandlerResult = LifecycleHookResult | void;

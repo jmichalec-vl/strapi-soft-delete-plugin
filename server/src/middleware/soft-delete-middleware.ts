@@ -123,16 +123,14 @@ const handleDelete = async (
     return { documentId, entries: [] };
   }
 
-  const shouldCancel = await lifecycleHooksService.fire('beforeSoftDelete', {
+  // Throws on handler error or { cancel: true } — the delete request then fails
+  // with that error instead of reporting a silent empty success.
+  await lifecycleHooksService.fire('beforeSoftDelete', {
     uid,
     documentId,
     entries: entriesToSoftDelete,
     auth,
   });
-
-  if (shouldCancel) {
-    return { documentId, entries: [] };
-  }
 
   const now = new Date().toISOString();
 

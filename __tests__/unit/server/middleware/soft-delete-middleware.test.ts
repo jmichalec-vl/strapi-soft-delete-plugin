@@ -111,14 +111,15 @@ describe('soft-delete-middleware', () => {
       expect(mock.getQueryForUid('api::article.article').updateMany).not.toHaveBeenCalled();
     });
 
-    it('cancels when beforeSoftDelete hook returns cancel', async () => {
+    it('propagates the error when beforeSoftDelete fire() rejects', async () => {
       const middleware = await importMiddleware();
       const next = vi.fn();
       const entries = [{ id: 1, documentId: 'doc-1' }];
+      const hookError = new Error('Operation cancelled by beforeSoftDelete hook');
 
       mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce(entries);
       mock.registerService('soft-delete', 'lifecycle-hooks', {
-        fire: vi.fn().mockResolvedValue(true),
+        fire: vi.fn().mockRejectedValue(hookError),
       });
 
       const ctx = createMiddlewareContext({
@@ -126,9 +127,7 @@ describe('soft-delete-middleware', () => {
         params: { documentId: 'doc-1' },
       });
 
-      const result = await middleware(ctx as never, next);
-
-      expect(result).toEqual({ documentId: 'doc-1', entries: [] });
+      await expect(middleware(ctx as never, next)).rejects.toBe(hookError);
       expect(mock.getQueryForUid('api::article.article').updateMany).not.toHaveBeenCalled();
     });
 

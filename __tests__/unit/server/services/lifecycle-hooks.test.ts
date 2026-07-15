@@ -1,3 +1,4 @@
+import { errors } from '@strapi/utils';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { createMockStrapi } from '../../../helpers/mock-strapi';
@@ -57,49 +58,70 @@ describe('lifecycle-hooks service', () => {
       expect(order).toEqual([1, 2]);
     });
 
-    it('returns true when a before hook cancels', async () => {
+    it('throws PolicyError (a ForbiddenError) when a before hook cancels', async () => {
       const service = createService();
       service.register('beforeSoftDelete', async () => ({ cancel: true }));
 
-      const cancelled = await service.fire('beforeSoftDelete', createPayload());
-
-      expect(cancelled).toBe(true);
+      // PolicyError so Strapi's route layer surfaces the message (plain
+      // ForbiddenError messages are masked with a generic "Forbidden")
+      await expect(service.fire('beforeSoftDelete', createPayload())).rejects.toThrow(
+        errors.PolicyError,
+      );
+      await expect(service.fire('beforeSoftDelete', createPayload())).rejects.toThrow(
+        errors.ForbiddenError,
+      );
+      await expect(service.fire('beforeSoftDelete', createPayload())).rejects.toThrow(
+        'Operation cancelled by beforeSoftDelete hook',
+      );
     });
 
-    it('returns false when no before hook cancels', async () => {
+    it('throws the custom error when a before hook cancels with one', async () => {
+      const service = createService();
+      const customError = new errors.ApplicationError('Cannot delete published product pages');
+      service.register('beforeSoftDelete', async () => ({ cancel: true, error: customError }));
+
+      await expect(service.fire('beforeSoftDelete', createPayload())).rejects.toBe(customError);
+    });
+
+    it('resolves when no before hook cancels', async () => {
       const service = createService();
       service.register('beforeSoftDelete', vi.fn());
 
-      const cancelled = await service.fire('beforeSoftDelete', createPayload());
-
-      expect(cancelled).toBe(false);
+      await expect(service.fire('beforeSoftDelete', createPayload())).resolves.toBeUndefined();
     });
 
     it('ignores cancel from after hooks', async () => {
       const service = createService();
       service.register('afterSoftDelete', async () => ({ cancel: true }));
 
-      const cancelled = await service.fire('afterSoftDelete', createPayload());
-
-      expect(cancelled).toBe(false);
+      await expect(service.fire('afterSoftDelete', createPayload())).resolves.toBeUndefined();
     });
 
-    it('catches and logs handler errors without crashing', async () => {
+    it('logs and re-throws before-hook handler errors', async () => {
       const service = createService();
+      const handlerError = new Error('handler error');
       service.register('beforeRestore', () => {
-        throw new Error('handler error');
+        throw handlerError;
       });
 
-      const cancelled = await service.fire('beforeRestore', createPayload());
-
-      expect(cancelled).toBe(false);
+      await expect(service.fire('beforeRestore', createPayload())).rejects.toBe(handlerError);
       expect(mock.strapi.log.error).toHaveBeenCalledWith(
         expect.stringContaining('beforeRestore'),
-        expect.any(Error),
+        handlerError,
       );
     });
 
-    it('continues to next handler after error', async () => {
+    it('re-throws after-hook handler errors', async () => {
+      const service = createService();
+      const handlerError = new Error('after hook failed');
+      service.register('afterSoftDelete', () => {
+        throw handlerError;
+      });
+
+      await expect(service.fire('afterSoftDelete', createPayload())).rejects.toBe(handlerError);
+    });
+
+    it('stops the handler chain at the first failure', async () => {
       const service = createService();
       const secondHandler = vi.fn();
 
@@ -107,17 +129,17 @@ describe('lifecycle-hooks service', () => {
         throw new Error('fail');
       });
       service.register('afterRestore', secondHandler);
-      await service.fire('afterRestore', createPayload());
 
-      expect(secondHandler).toHaveBeenCalled();
+      await expect(service.fire('afterRestore', createPayload())).rejects.toThrow('fail');
+      expect(secondHandler).not.toHaveBeenCalled();
     });
 
-    it('returns false when no handlers are registered', async () => {
+    it('resolves when no handlers are registered', async () => {
       const service = createService();
 
-      const cancelled = await service.fire('beforeDeletePermanently', createPayload());
-
-      expect(cancelled).toBe(false);
+      await expect(
+        service.fire('beforeDeletePermanently', createPayload()),
+      ).resolves.toBeUndefined();
     });
 
     it('stops before hooks after first cancel', async () => {
@@ -126,8 +148,8 @@ describe('lifecycle-hooks service', () => {
 
       service.register('beforeSoftDelete', async () => ({ cancel: true }));
       service.register('beforeSoftDelete', secondHandler);
-      await service.fire('beforeSoftDelete', createPayload());
 
+      await expect(service.fire('beforeSoftDelete', createPayload())).rejects.toThrow();
       expect(secondHandler).not.toHaveBeenCalled();
     });
   });

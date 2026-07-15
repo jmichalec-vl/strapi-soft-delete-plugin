@@ -175,16 +175,15 @@ describe('soft-delete service', () => {
       expect(result).toBeNull();
     });
 
-    it('cancels when beforeRestore hook returns cancel', async () => {
+    it('propagates the error when beforeRestore fire() rejects', async () => {
+      const hookError = new Error('Operation cancelled by beforeRestore hook');
       mock.getQueryForUid(UID).findMany.mockResolvedValue([{ id: 1, documentId: 'doc-1' }]);
       mock.registerService('soft-delete', 'lifecycle-hooks', {
-        fire: vi.fn().mockResolvedValue(true),
+        fire: vi.fn().mockRejectedValue(hookError),
       });
       const service = createService();
 
-      const result = await service.restore(UID, 'doc-1', 'collectionType');
-
-      expect(result).toBeNull();
+      await expect(service.restore(UID, 'doc-1', 'collectionType')).rejects.toBe(hookError);
       expect(mock.getQueryForUid(UID).updateMany).not.toHaveBeenCalled();
     });
   });
@@ -219,6 +218,18 @@ describe('soft-delete service', () => {
       expect(emitFn).toHaveBeenCalledWith(
         expect.objectContaining({ event: 'entry.delete', action: 'delete-permanently' }),
       );
+    });
+
+    it('propagates the error when beforeDeletePermanently fire() rejects', async () => {
+      const hookError = new Error('Operation cancelled by beforeDeletePermanently hook');
+      mock.getQueryForUid(UID).findMany.mockResolvedValue([{ id: 1, documentId: 'doc-1' }]);
+      mock.registerService('soft-delete', 'lifecycle-hooks', {
+        fire: vi.fn().mockRejectedValue(hookError),
+      });
+      const service = createService();
+
+      await expect(service.deletePermanently(UID, 'doc-1')).rejects.toBe(hookError);
+      expect(mock.getQueryForUid(UID).delete).not.toHaveBeenCalled();
     });
 
     it('returns null when no entries found', async () => {

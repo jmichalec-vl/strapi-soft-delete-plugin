@@ -163,3 +163,16 @@ Existing role permissions will need to be re-granted for the renamed permission 
 - **Component cleanup** — permanent delete properly cleans up components and dynamic zones
 - **Populated relation filtering** — soft-deleted entries are excluded from populated relations
 - **Custom lifecycle hooks** — `beforeSoftDelete`, `afterSoftDelete`, `beforeRestore`, `afterRestore`, `beforeDeletePermanently`, `afterDeletePermanently`
+
+## Upgrading from 0.1.x to 0.2.0
+
+### Lifecycle hook errors now propagate (behavioral change)
+
+In 0.1.x, exceptions thrown by lifecycle hook handlers were caught and logged, and `{ cancel: true }` made the operation silently report success (a delete request returned `{ documentId, entries: [] }`). Since 0.2.0:
+
+- An exception thrown by a `before*` handler aborts the operation and propagates to the caller. In the admin, an `errors.ApplicationError('...')` from `@strapi/utils` surfaces as an HTTP 400 with your message.
+- `{ cancel: true }` is no longer silent — the operation fails with a `PolicyError` (`"Operation cancelled by <hookName> hook"`, HTTP 403). Return `{ cancel: true, error: myError }` to fail with a custom error instead.
+- An exception thrown by an `after*` handler also propagates, but the operation itself is already committed at that point and is NOT rolled back.
+- A failing handler stops the handler chain — later handlers for the same hook do not run.
+
+If you relied on hooks failing silently (e.g. best-effort logging or notifications), wrap your handler body in `try/catch`.

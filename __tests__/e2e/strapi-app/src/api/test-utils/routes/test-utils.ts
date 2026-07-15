@@ -16,5 +16,21 @@ export default {
         auth: false,
       },
     },
+    {
+      method: 'POST',
+      path: '/test-utils/soft-delete-hook-behavior',
+      handler: 'test-utils.setSoftDeleteHookBehavior',
+      config: {
+        auth: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/test-utils/soft-delete-hook-behavior/reset',
+      handler: 'test-utils.resetSoftDeleteHookBehaviors',
+      config: {
+        auth: false,
+      },
+    },
   ],
 };

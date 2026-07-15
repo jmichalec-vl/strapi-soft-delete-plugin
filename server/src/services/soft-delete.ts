@@ -240,13 +240,13 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const auth = getAuthResolver().resolveAuth();
 
-    const shouldCancel = await lifecycleHooks.fire('beforeRestore', {
+    // Throws on handler error or { cancel: true } — the restore then fails with that error
+    await lifecycleHooks.fire('beforeRestore', {
       uid,
       documentId,
       entries: entriesToRestore,
       auth,
     });
-    if (shouldCancel) return null;
 
     // Disable ALL lifecycles for update — suppress beforeUpdate/afterUpdate
     strapi.db.lifecycles.disable();
@@ -309,13 +309,13 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
 
     if (entriesToDelete.length === 0) return null;
 
-    const shouldCancel = await lifecycleHooks.fire('beforeDeletePermanently', {
+    // Throws on handler error or { cancel: true } — the deletion then fails with that error
+    await lifecycleHooks.fire('beforeDeletePermanently', {
       uid,
       documentId,
       entries: entriesToDelete,
       auth,
     });
-    if (shouldCancel) return null;
 
     // Delete each entry individually with component cleanup.
     // Bypass our filter so the WHERE clause finds soft-deleted entries.

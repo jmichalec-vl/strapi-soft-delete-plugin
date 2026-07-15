@@ -12,4 +12,6 @@ export type {
   AuthStrategy,
   ResolvedAuth,
   LifecycleHookPayload,
+  LifecycleHookResult,
+  LifecycleHookHandlerResult,
 } from './soft-deleted-entry';

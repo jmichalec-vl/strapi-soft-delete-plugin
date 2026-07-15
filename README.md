@@ -122,7 +122,8 @@ export default {
 
     hooks.register('beforeSoftDelete', async ({ uid, documentId, entries, auth }) => {
       console.log(`About to soft-delete ${documentId} from ${uid}`);
-      // Return { cancel: true } to prevent the operation
+      // Return { cancel: true } to prevent the operation,
+      // or throw to fail it with your own error
     });
 
     hooks.register('afterRestore', async ({ uid, documentId, entries, auth }) => {
@@ -138,7 +139,22 @@ Available hooks:
 - `beforeRestore` / `afterRestore`
 - `beforeDeletePermanently` / `afterDeletePermanently`
 
-All `before*` hooks can return `{ cancel: true }` to abort the operation.
+### Hook Error Semantics
+
+Since 0.2.0, handler errors and cancellations propagate to the caller instead of being silently swallowed:
+
+| Handler behavior                             | Result                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `before*` handler throws                     | Operation aborts; the error propagates to the caller (e.g. `errors.ApplicationError` from `@strapi/utils` → HTTP 400 in the admin)                            |
+| `before*` handler returns `{ cancel: true }` | Operation aborts with a `PolicyError` — `"Operation cancelled by <hookName> hook"` (HTTP 403)                                                                 |
+| `before*` returns `{ cancel: true, error }`  | Operation aborts with your `error`                                                                                                                            |
+| `after*` handler throws                      | The error propagates to the caller, **but the operation is already committed** — the soft-delete/restore/permanent-delete is NOT rolled back (see note below) |
+
+Notes:
+
+- Handlers run in registration order; the first throw/cancel stops the chain.
+- The plugin intercepts `delete` outside Strapi's document-service transaction, so an `after*` hook throw cannot roll the operation back. If you need atomic behavior, do the cascading work inside the `after*` hook and compensate on failure (e.g. restore the entry).
+- For user-visible messages, throw `errors.ApplicationError` (HTTP 400) or `errors.PolicyError` (HTTP 403) from `@strapi/utils`. A plain `errors.ForbiddenError` reaches the caller as a generic `"Forbidden"` — Strapi's route layer masks its message.
 
 ## How It Works
 
