@@ -185,6 +185,10 @@ If you relied on hooks failing silently (e.g. best-effort logging or notificatio
 
 0.1.x recognized only the new `plugin::soft-delete.explorer.soft-deleted-read` action, silently dropping trash access for roles that still carried the v4 `plugin::soft-delete.explorer.read` rows. 0.2.0 rewrites those rows automatically on its first boot (see [RBAC Permissions](#rbac-permissions) above). No manual action needed.
 
+### Event payloads are sanitized
+
+0.1.x emitted raw database entities to the event hub — webhook consumers received password-type fields, `private: true` attributes, and the plugin's `_softDeletedAt`/`_softDeletedById`/`_softDeletedByType` bookkeeping columns. 0.2.0 sanitizes every emitted entry against the content type's schema (core's `defaultSanitizeOutput`), so none of those reach webhook consumers — the same behavior as the v4 plugin. If a webhook relied on `_softDeletedAt` in the payload, use the event's `plugin.action` field (`soft-delete`, `restore`, `delete-permanently`) instead.
+
 ### Auto-purge now matches the permanent-delete path
 
 0.1.x purged expired entries with a raw `deleteMany` — component/dynamic-zone rows were orphaned, and no hooks or events fired. 0.2.0 routes each expired document through the same permanent-delete path the admin uses: components are cleaned up, `beforeDeletePermanently`/`afterDeletePermanently` hooks fire, and an `entry.delete` event is emitted per purged entry. A hook throw/veto during a purge run skips that document (logged, retried next run) instead of aborting the whole run, and documents that still have non-expired rows are never purged.

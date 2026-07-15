@@ -161,6 +161,12 @@ Notes:
 - The soft-delete/restore write and its `after*` hooks run inside one plugin-owned transaction, so host cascades are atomic: if your `afterSoftDelete` cascade fails, the parent is NOT left half-trashed. Events (`entry.delete`/`entry.update`) are emitted only after the transaction commits.
 - For user-visible messages, throw `errors.ApplicationError` (HTTP 400) or `errors.PolicyError` (HTTP 403) from `@strapi/utils`. A plain `errors.ForbiddenError` reaches the caller as a generic `"Forbidden"` — Strapi's route layer masks its message.
 
+## Webhook Events
+
+The plugin emits `entry.delete` (actions `soft-delete` and `delete-permanently`) and `entry.update` (action `restore`) to the event hub, with the plugin identified in the payload: `plugin: { id: 'soft-delete', action }`.
+
+Event entries are sanitized against the content type's schema before they are emitted — the same `defaultSanitizeOutput` the core document service applies to its own `entry.*` events. Password-type attributes and every `private: true` attribute never reach webhook consumers. The plugin's own bookkeeping fields (`_softDeletedAt`, `_softDeletedById`, `_softDeletedByType`) are private attributes and are stripped too, matching the v4 plugin's behavior — the event's `plugin.action` field already tells consumers what happened.
+
 ## Programmatic API
 
 Server-side code (bootstrap, cron jobs, other plugins) can drive soft-delete operations through the `api` service:

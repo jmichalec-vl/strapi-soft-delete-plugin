@@ -2,8 +2,17 @@ import type { Core } from '@strapi/types';
 
 import { supportsContentType } from './utils';
 
+// `__schema__` is an internal Strapi property absent from the public types,
+// so the registered content types are narrowed to the shape mutated below.
+interface PatchableContentType {
+  attributes: Record<string, unknown>;
+  __schema__: { attributes: Record<string, unknown> };
+}
+
 const register = ({ strapi }: { strapi: Core.Strapi }) => {
-  for (const [uid, contentType] of Object.entries(strapi.contentTypes) as [string, any][]) {
+  const contentTypes = strapi.contentTypes as unknown as Record<string, PatchableContentType>;
+
+  for (const [uid, contentType] of Object.entries(contentTypes)) {
     if (!supportsContentType(uid)) continue;
 
     const _softDeletedAt = {
