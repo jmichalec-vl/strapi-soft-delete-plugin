@@ -78,11 +78,34 @@ describe('soft-delete-middleware', () => {
       const result = await middleware(ctx as never, next);
 
       expect(next).not.toHaveBeenCalled();
-      expect(softDeleteDocument).toHaveBeenCalledWith('api::article.article', 'doc-1', {
-        id: 1,
-        strategy: 'admin',
-      });
+      expect(softDeleteDocument).toHaveBeenCalledWith(
+        'api::article.article',
+        'doc-1',
+        { id: 1, strategy: 'admin' },
+        { locale: undefined },
+      );
       expect(result).toBe(operationResult);
+    });
+
+    it('threads the locale param through to the soft-delete service', async () => {
+      const middleware = await importMiddleware();
+      const next = vi.fn();
+      const softDeleteDocument = vi.fn().mockResolvedValue({ documentId: 'doc-1', entries: [] });
+      mock.registerService('soft-delete', 'soft-delete', { softDeleteDocument });
+
+      const ctx = createMiddlewareContext({
+        action: 'delete',
+        params: { documentId: 'doc-1', locale: 'fr' },
+      });
+
+      await middleware(ctx as never, next);
+
+      expect(softDeleteDocument).toHaveBeenCalledWith(
+        'api::article.article',
+        'doc-1',
+        { id: 1, strategy: 'admin' },
+        { locale: 'fr' },
+      );
     });
 
     it('propagates rejections from the soft-delete service (hook veto)', async () => {

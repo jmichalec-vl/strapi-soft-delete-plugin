@@ -94,16 +94,22 @@ interface AnyDocument {
  * programmatic API (`service('api').softDelete`) share ONE code path —
  * lifecycle hooks and events fire identically for both. Rejects when a hook
  * handler throws or cancels; the delete request then fails with that error.
+ *
+ * A concrete `locale` param (not `'*'`) restricts the soft delete to that
+ * locale's rows, matching core's locale-scoped delete semantics.
  */
 const handleDelete = async (
   ctx: Parameters<Middleware>[0],
 ): Promise<{ documentId: string; entries: AnyDocument[] }> => {
   const { uid } = ctx;
-  const { documentId } = ctx.params as { documentId: string };
+  const { documentId, locale } = ctx.params as { documentId: string; locale?: string | null };
 
   const auth = strapi.plugin(PLUGIN_ID).service('auth-resolver').resolveAuth();
 
-  return strapi.plugin(PLUGIN_ID).service('soft-delete').softDeleteDocument(uid, documentId, auth);
+  return strapi
+    .plugin(PLUGIN_ID)
+    .service('soft-delete')
+    .softDeleteDocument(uid, documentId, auth, { locale });
 };
 
 export default softDeleteMiddleware;

@@ -6,6 +6,7 @@ import type {
   ResolvedAuth,
   SoftDeleteApi,
   SoftDeleteApiOptions,
+  SoftDeleteApiSoftDeleteOptions,
   SoftDeleteFindParams,
   SoftDeleteOperationResult,
   SoftDeletedEntry,
@@ -47,10 +48,12 @@ const publicApi = ({ strapi }: { strapi: Core.Strapi }): SoftDeleteApi => {
     async softDelete(
       uid: string,
       documentId: string,
-      options?: SoftDeleteApiOptions,
+      options?: SoftDeleteApiSoftDeleteOptions,
     ): Promise<SoftDeleteOperationResult> {
       assertSupportedContentType(uid);
-      return getSoftDeleteService().softDeleteDocument(uid, documentId, resolveAuth(options));
+      return getSoftDeleteService().softDeleteDocument(uid, documentId, resolveAuth(options), {
+        locale: options?.locale,
+      });
     },
 
     async restore(

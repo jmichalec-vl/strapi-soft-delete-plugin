@@ -21,8 +21,21 @@ interface SoftDeleteColumnValues {
 }
 
 /**
+ * Options for `softDeleteDocument`. A concrete `locale` (anything but `'*'`,
+ * `null`, or `undefined`) restricts the soft delete to that locale's rows;
+ * otherwise every locale of the document is soft-deleted, matching core's
+ * `documents().delete` semantics.
+ */
+export interface SoftDeleteDocumentOptions {
+  readonly locale?: string | null;
+}
+
+const toLocaleConstraint = (locale: string | null | undefined): string | undefined =>
+  locale && locale !== '*' ? locale : undefined;
+
+/**
  * Raw, statement-scoped knex update of the soft-delete columns for every row
- * of a document.
+ * of a document (optionally restricted to one locale).
  *
  * Deliberately bypasses the query engine so core DB lifecycles
  * (beforeUpdate/afterUpdate/...) don't fire for the internal write. This
@@ -35,6 +48,7 @@ const updateSoftDeleteColumns = async (
   documentId: string,
   values: SoftDeleteColumnValues,
   trx: Knex.Transaction,
+  locale?: string,
 ): Promise<void> => {
   const metadata = strapi.db.metadata.get(uid);
 
@@ -49,15 +63,16 @@ const updateSoftDeleteColumns = async (
     return columnName;
   };
 
-  await strapi.db
+  const query = strapi.db
     .getConnection(metadata.tableName)
     .transacting(trx)
-    .where(column('documentId'), documentId)
-    .update({
-      [column(DELETED_AT)]: values.deletedAt,
-      [column(DELETED_BY_ID)]: values.deletedById,
-      [column(DELETED_BY_TYPE)]: values.deletedByType,
-    });
+    .where(column('documentId'), documentId);
+
+  await (locale ? query.where(column('locale'), locale) : query).update({
+    [column(DELETED_AT)]: values.deletedAt,
+    [column(DELETED_BY_ID)]: values.deletedById,
+    [column(DELETED_BY_TYPE)]: values.deletedByType,
+  });
 };
 
 export type FindManyParams = SoftDeleteFindParams;
@@ -210,6 +225,10 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
    * Core soft-delete path — shared by the Document Service middleware
    * (intercepted `documents(uid).delete()`) and the programmatic API.
    *
+   * When `options.locale` is a concrete locale (not `'*'`), only that
+   * locale's rows are soft-deleted — other locales stay live, matching
+   * core's locale-scoped `documents().delete({ documentId, locale })`.
+   *
    * Fires `beforeSoftDelete`/`afterSoftDelete` hooks and emits an
    * `entry.delete` event per affected entry. Rejects when a hook handler
    * throws or a `before*` handler cancels — the write does not happen.
@@ -220,15 +239,17 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
     uid: string,
     documentId: string,
     auth: ResolvedAuth,
+    options: SoftDeleteDocumentOptions = {},
   ): Promise<OperationResult> => {
     const bypass = getBypass();
     const lifecycleHooks = getLifecycleHooks();
     const eventEmitter = getEventEmitter();
 
-    // Bypass our subscriber filter to find all entries for this document
-    const entriesToSoftDelete = await bypass(() =>
-      strapi.db.query(uid).findMany({ where: { documentId } }),
-    );
+    const locale = toLocaleConstraint(options.locale);
+    const where = locale ? { documentId, locale } : { documentId };
+
+    // Bypass our subscriber filter to find the affected entries
+    const entriesToSoftDelete = await bypass(() => strapi.db.query(uid).findMany({ where }));
 
     if (entriesToSoftDelete.length === 0) {
       return { documentId, entries: [] };
@@ -254,11 +275,12 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
         documentId,
         { deletedAt: new Date(), deletedById: auth.id, deletedByType: auth.strategy },
         trx,
+        locale,
       );
 
       // db.query joins the transaction via Strapi's transaction context;
       // bypass our subscriber to fetch the now-soft-deleted entries
-      const entries = await bypass(() => strapi.db.query(uid).findMany({ where: { documentId } }));
+      const entries = await bypass(() => strapi.db.query(uid).findMany({ where }));
 
       await lifecycleHooks.fire('afterSoftDelete', { uid, documentId, entries, auth });
 

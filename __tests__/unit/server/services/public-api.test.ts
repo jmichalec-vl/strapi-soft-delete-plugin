@@ -74,7 +74,14 @@ describe('public api service', () => {
 
       const result = await service.softDelete(UID, 'doc-1');
 
-      expect(softDeleteService.softDeleteDocument).toHaveBeenCalledWith(UID, 'doc-1', REQUEST_AUTH);
+      expect(softDeleteService.softDeleteDocument).toHaveBeenCalledWith(
+        UID,
+        'doc-1',
+        REQUEST_AUTH,
+        {
+          locale: undefined,
+        },
+      );
       expect(result).toEqual({ documentId: 'doc-1', entries: [] });
     });
 
@@ -87,6 +94,24 @@ describe('public api service', () => {
         UID,
         'doc-1',
         OVERRIDE_AUTH,
+        {
+          locale: undefined,
+        },
+      );
+    });
+
+    it('threads the locale option through to the soft-delete service', async () => {
+      const service = createService();
+
+      await service.softDelete(UID, 'doc-1', { locale: 'fr' });
+
+      expect(softDeleteService.softDeleteDocument).toHaveBeenCalledWith(
+        UID,
+        'doc-1',
+        REQUEST_AUTH,
+        {
+          locale: 'fr',
+        },
       );
     });
 

@@ -171,6 +171,10 @@ const api = strapi.plugin('soft-delete').service('api');
 // Same code path as an intercepted documents().delete — hooks + events fire
 await api.softDelete('api::article.article', documentId);
 
+// i18n: soft-delete a single locale — other locales stay live
+// (mirrors documents().delete({ documentId, locale }); '*' or omitted = all locales)
+await api.softDelete('api::article.article', documentId, { locale: 'fr' });
+
 // Fires beforeRestore/afterRestore; respects restoration-behavior settings
 await api.restore('api::article.article', documentId);
 
@@ -191,6 +195,7 @@ Notes:
 - Every method throws an `ApplicationError` when `uid` is not an `api::` content type.
 - `softDelete`, `restore`, and `deletePermanently` run the plugin lifecycle hooks exactly like the admin operations do — the returned promise **rejects** when a `before*` handler throws or returns `{ cancel: true }`, and when an `after*` handler throws (see [Hook Error Semantics](#hook-error-semantics)).
 - Outside an HTTP request (cron, CLI, bootstrap), pass `{ auth: { id, strategy } }` as the last argument to attribute the operation; by default attribution is resolved from the current request.
+- `softDelete` accepts an optional `{ locale }` for localized content types: a concrete locale soft-deletes only that locale's rows (the intercepted admin delete honors its `locale` param the same way); `'*'` or omitted soft-deletes every locale.
 - Types ship with the package: `import type { SoftDeleteApi } from 'strapi-soft-delete-plugin'`.
 
 ### Worked example: cascading soft delete and restore

@@ -44,6 +44,7 @@ interface RecordedKnexUpdate {
 
 const SNAKE_CASE_COLUMNS: Readonly<Record<string, string>> = {
   documentId: 'document_id',
+  locale: 'locale',
   _softDeletedAt: 'soft_deleted_at',
   _softDeletedById: 'soft_deleted_by_id',
   _softDeletedByType: 'soft_deleted_by_type',

@@ -12,6 +12,7 @@
 export type {
   SoftDeleteApi,
   SoftDeleteApiOptions,
+  SoftDeleteApiSoftDeleteOptions,
   SoftDeleteFindParams,
   SoftDeleteOperationResult,
   SoftDeletedBy,

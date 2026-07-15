@@ -13,6 +13,19 @@ export interface SoftDeleteApiOptions {
 }
 
 /**
+ * Options accepted by `softDelete`.
+ */
+export interface SoftDeleteApiSoftDeleteOptions extends SoftDeleteApiOptions {
+  /**
+   * Restrict the soft delete to a single locale of the document — other
+   * locales stay live, matching core's locale-scoped
+   * `documents().delete({ documentId, locale })`. Pass `'*'` or omit to
+   * soft-delete every locale.
+   */
+  readonly locale?: string;
+}
+
+/**
  * Query parameters for `findSoftDeleted`.
  */
 export interface SoftDeleteFindParams {
@@ -46,12 +59,13 @@ export interface SoftDeleteApi {
   /**
    * Soft-delete a document. Same code path as an intercepted
    * `documents(uid).delete()` — fires `beforeSoftDelete`/`afterSoftDelete`
-   * hooks and emits `entry.delete` events.
+   * hooks and emits `entry.delete` events. Pass `options.locale` to
+   * restrict the operation to one locale of the document.
    */
   softDelete(
     uid: string,
     documentId: string,
-    options?: SoftDeleteApiOptions,
+    options?: SoftDeleteApiSoftDeleteOptions,
   ): Promise<SoftDeleteOperationResult>;
 
   /**

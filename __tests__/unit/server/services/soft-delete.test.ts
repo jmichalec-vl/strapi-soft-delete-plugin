@@ -151,6 +151,53 @@ describe('soft-delete service', () => {
       );
     });
 
+    it('constrains the row selection and the update to the given locale', async () => {
+      const frenchEntry = { id: 2, documentId: 'doc-1', locale: 'fr' };
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce([frenchEntry])
+        .mockResolvedValueOnce([{ ...frenchEntry, _softDeletedAt: '2026-01-01T00:00:00.000Z' }]);
+      const service = createService();
+
+      const result = await service.softDeleteDocument(UID, 'doc-1', AUTH, { locale: 'fr' });
+
+      expect(mock.getQueryForUid(UID).findMany).toHaveBeenCalledWith({
+        where: { documentId: 'doc-1', locale: 'fr' },
+      });
+      expect(mock.knexUpdates).toEqual([
+        expect.objectContaining({
+          where: { document_id: 'doc-1', locale: 'fr' },
+        }),
+      ]);
+      expect(result.entries).toHaveLength(1);
+    });
+
+    it.each([
+      { label: 'omitted', options: undefined },
+      { label: 'undefined', options: { locale: undefined } },
+      { label: 'null', options: { locale: null } },
+      { label: "'*'", options: { locale: '*' } },
+    ])('soft-deletes every locale when locale is $label', async ({ options }) => {
+      const entries = [
+        { id: 1, documentId: 'doc-1', locale: 'en' },
+        { id: 2, documentId: 'doc-1', locale: 'fr' },
+      ];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce(entries);
+      const service = createService();
+
+      await service.softDeleteDocument(UID, 'doc-1', AUTH, options);
+
+      expect(mock.getQueryForUid(UID).findMany).toHaveBeenCalledWith({
+        where: { documentId: 'doc-1' },
+      });
+      expect(mock.knexUpdates).toEqual([
+        expect.objectContaining({ where: { document_id: 'doc-1' } }),
+      ]);
+    });
+
     it('emits an entry.delete event per soft-deleted entry', async () => {
       const emitFn = vi.fn().mockResolvedValue(undefined);
       const entries = [

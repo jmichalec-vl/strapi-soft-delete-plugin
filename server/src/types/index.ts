@@ -19,6 +19,7 @@ export type {
 export type {
   SoftDeleteApi,
   SoftDeleteApiOptions,
+  SoftDeleteApiSoftDeleteOptions,
   SoftDeleteFindParams,
   SoftDeleteOperationResult,
 } from './public-api';
