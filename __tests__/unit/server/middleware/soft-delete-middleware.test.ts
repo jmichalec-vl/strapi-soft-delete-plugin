@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+import middleware from '../../../../server/src/middleware/soft-delete-middleware';
 import { createMockStrapi } from '../../../helpers/mock-strapi';
 
-// Must set global before importing middleware
+// The middleware reads the global strapi at call time, never at import time,
+// so a static import is safe — and keeps the heavy @strapi/utils module graph
+// in the collect phase instead of the first test's timeout budget.
 let mock: ReturnType<typeof createMockStrapi>;
 
 beforeEach(() => {
@@ -18,13 +21,10 @@ beforeEach(() => {
   mock.registerService('soft-delete', 'db-subscriber', {
     bypass: async <T>(fn: () => Promise<T>): Promise<T> => fn(),
   });
+  mock.registerService('soft-delete', 'auth-resolver', {
+    resolveAuth: vi.fn().mockReturnValue({ id: 1, strategy: 'admin' }),
+  });
 });
-
-// Dynamic import to pick up the global strapi
-const importMiddleware = async () => {
-  const mod = await import('../../../../server/src/middleware/soft-delete-middleware');
-  return mod.default;
-};
 
 const createMiddlewareContext = (overrides: Record<string, unknown> = {}) => ({
   uid: 'api::article.article',
@@ -37,7 +37,6 @@ const createMiddlewareContext = (overrides: Record<string, unknown> = {}) => ({
 describe('soft-delete-middleware', () => {
   describe('unsupported content types', () => {
     it('passes through for admin:: content types', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue('original-result');
       const ctx = createMiddlewareContext({ uid: 'admin::user' });
 
@@ -48,7 +47,6 @@ describe('soft-delete-middleware', () => {
     });
 
     it('passes through for plugin:: content types', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue('original-result');
       const ctx = createMiddlewareContext({ uid: 'plugin::users-permissions.user' });
 
@@ -60,15 +58,11 @@ describe('soft-delete-middleware', () => {
   });
 
   describe('delete action', () => {
-    it('converts delete to soft-delete update', async () => {
-      const middleware = await importMiddleware();
+    it('delegates delete to the soft-delete service with the request auth', async () => {
       const next = vi.fn();
-      const entries = [{ id: 1, documentId: 'doc-1', title: 'Test' }];
-
-      mock
-        .getQueryForUid('api::article.article')
-        .findMany.mockResolvedValueOnce(entries)
-        .mockResolvedValueOnce([{ ...entries[0], _softDeletedAt: '2026-01-01T00:00:00.000Z' }]);
+      const operationResult = { documentId: 'doc-1', entries: [{ id: 1, documentId: 'doc-1' }] };
+      const softDeleteDocument = vi.fn().mockResolvedValue(operationResult);
+      mock.registerService('soft-delete', 'soft-delete', { softDeleteDocument });
 
       const ctx = createMiddlewareContext({
         action: 'delete',
@@ -78,138 +72,53 @@ describe('soft-delete-middleware', () => {
       const result = await middleware(ctx as never, next);
 
       expect(next).not.toHaveBeenCalled();
-      expect(mock.strapi.db.lifecycles.disable).toHaveBeenCalled();
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
-      expect(mock.getQueryForUid('api::article.article').updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { documentId: 'doc-1' },
-          data: expect.objectContaining({
-            _softDeletedAt: expect.any(String),
-            _softDeletedById: 1,
-            _softDeletedByType: 'admin',
-          }),
-        }),
+      expect(softDeleteDocument).toHaveBeenCalledWith(
+        'api::article.article',
+        'doc-1',
+        { id: 1, strategy: 'admin' },
+        { locale: undefined },
       );
-      expect(result).toHaveProperty('documentId', 'doc-1');
-      expect(result).toHaveProperty('entries');
+      expect(result).toBe(operationResult);
     });
 
-    it('returns empty entries when document not found', async () => {
-      const middleware = await importMiddleware();
+    it('threads the locale param through to the soft-delete service', async () => {
       const next = vi.fn();
-
-      mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce([]);
+      const softDeleteDocument = vi.fn().mockResolvedValue({ documentId: 'doc-1', entries: [] });
+      mock.registerService('soft-delete', 'soft-delete', { softDeleteDocument });
 
       const ctx = createMiddlewareContext({
         action: 'delete',
-        params: { documentId: 'nonexistent' },
-      });
-
-      const result = await middleware(ctx as never, next);
-
-      expect(result).toEqual({ documentId: 'nonexistent', entries: [] });
-      expect(mock.getQueryForUid('api::article.article').updateMany).not.toHaveBeenCalled();
-    });
-
-    it('cancels when beforeSoftDelete hook returns cancel', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-      const entries = [{ id: 1, documentId: 'doc-1' }];
-
-      mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce(entries);
-      mock.registerService('soft-delete', 'lifecycle-hooks', {
-        fire: vi.fn().mockResolvedValue(true),
-      });
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'doc-1' },
-      });
-
-      const result = await middleware(ctx as never, next);
-
-      expect(result).toEqual({ documentId: 'doc-1', entries: [] });
-      expect(mock.getQueryForUid('api::article.article').updateMany).not.toHaveBeenCalled();
-    });
-
-    it('fires afterSoftDelete hook after update', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-      const fireFn = vi.fn().mockResolvedValue(false);
-      const entries = [{ id: 1, documentId: 'doc-1' }];
-
-      mock
-        .getQueryForUid('api::article.article')
-        .findMany.mockResolvedValueOnce(entries)
-        .mockResolvedValueOnce(entries);
-      mock.registerService('soft-delete', 'lifecycle-hooks', { fire: fireFn });
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'doc-1' },
+        params: { documentId: 'doc-1', locale: 'fr' },
       });
 
       await middleware(ctx as never, next);
 
-      expect(fireFn).toHaveBeenCalledWith('beforeSoftDelete', expect.any(Object));
-      expect(fireFn).toHaveBeenCalledWith('afterSoftDelete', expect.any(Object));
-    });
-
-    it('emits entry.delete event for each soft-deleted entry', async () => {
-      const middleware = await importMiddleware();
-      const next = vi.fn();
-      const emitFn = vi.fn().mockResolvedValue(undefined);
-      const entries = [
-        { id: 1, documentId: 'doc-1' },
-        { id: 2, documentId: 'doc-1' },
-      ];
-
-      mock
-        .getQueryForUid('api::article.article')
-        .findMany.mockResolvedValueOnce(entries)
-        .mockResolvedValueOnce(entries);
-      mock.registerService('soft-delete', 'event-emitter', { emit: emitFn });
-
-      const ctx = createMiddlewareContext({
-        action: 'delete',
-        params: { documentId: 'doc-1' },
-      });
-
-      await middleware(ctx as never, next);
-
-      expect(emitFn).toHaveBeenCalledTimes(2);
-      expect(emitFn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          uid: 'api::article.article',
-          event: 'entry.delete',
-          action: 'soft-delete',
-        }),
+      expect(softDeleteDocument).toHaveBeenCalledWith(
+        'api::article.article',
+        'doc-1',
+        { id: 1, strategy: 'admin' },
+        { locale: 'fr' },
       );
     });
 
-    it('re-enables lifecycles even when updateMany throws', async () => {
-      const middleware = await importMiddleware();
+    it('propagates rejections from the soft-delete service (hook veto)', async () => {
       const next = vi.fn();
-      const entries = [{ id: 1, documentId: 'doc-1' }];
-
-      mock.getQueryForUid('api::article.article').findMany.mockResolvedValueOnce(entries);
-      mock
-        .getQueryForUid('api::article.article')
-        .updateMany.mockRejectedValueOnce(new Error('DB error'));
+      const hookError = new Error('Operation cancelled by beforeSoftDelete hook');
+      mock.registerService('soft-delete', 'soft-delete', {
+        softDeleteDocument: vi.fn().mockRejectedValue(hookError),
+      });
 
       const ctx = createMiddlewareContext({
         action: 'delete',
         params: { documentId: 'doc-1' },
       });
 
-      await expect(middleware(ctx as never, next)).rejects.toThrow('DB error');
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
+      await expect(middleware(ctx as never, next)).rejects.toBe(hookError);
     });
   });
 
   describe('findMany action', () => {
     it('injects soft-delete filter and merges with existing filters', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue([]);
       const ctx = createMiddlewareContext({
         action: 'findMany',
@@ -227,7 +136,6 @@ describe('soft-delete-middleware', () => {
 
   describe('findOne action', () => {
     it('passes through to next', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue(null);
       const ctx = createMiddlewareContext({ action: 'findOne', params: {} });
 
@@ -239,7 +147,6 @@ describe('soft-delete-middleware', () => {
 
   describe('count action', () => {
     it('passes through to next', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue(0);
       const ctx = createMiddlewareContext({ action: 'count', params: {} });
 
@@ -251,7 +158,6 @@ describe('soft-delete-middleware', () => {
 
   describe('create action', () => {
     it('strips soft-delete fields from data', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue({ id: 1 });
       const ctx = createMiddlewareContext({
         action: 'create',
@@ -278,7 +184,6 @@ describe('soft-delete-middleware', () => {
 
   describe('update action', () => {
     it('strips soft-delete fields from data', async () => {
-      const middleware = await importMiddleware();
       const next = vi.fn().mockResolvedValue({ id: 1 });
       const ctx = createMiddlewareContext({
         action: 'update',
@@ -301,7 +206,6 @@ describe('soft-delete-middleware', () => {
     it.each(['publish', 'unpublish', 'discardDraft'])(
       'passes through %s action',
       async (action) => {
-        const middleware = await importMiddleware();
         const next = vi.fn().mockResolvedValue('result');
         const ctx = createMiddlewareContext({ action });
 

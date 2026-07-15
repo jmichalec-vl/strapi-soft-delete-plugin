@@ -86,4 +86,99 @@ describe('db-subscriber service', () => {
       $and: [existing, { _softDeletedAt: { $null: true } }],
     });
   });
+
+  describe('bypass', () => {
+    const yieldToEventLoop = (): Promise<void> =>
+      new Promise((resolve) => {
+        setImmediate(resolve);
+      });
+
+    const getSubscriber = (service: ReturnType<typeof createService>) => {
+      service.register();
+      return (mock.strapi.db.lifecycles.subscribe as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    };
+
+    it('skips filter injection for reads inside the bypass callback', async () => {
+      const service = createService();
+      const subscriber = getSubscriber(service);
+      const event = { params: {} as Record<string, unknown> };
+
+      await service.bypass(async () => {
+        subscriber.beforeFindMany(event);
+      });
+
+      expect(event.params.where).toBeUndefined();
+    });
+
+    it('restores filter injection for reads after the bypass callback resolves', async () => {
+      const service = createService();
+      const subscriber = getSubscriber(service);
+      const event = { params: {} as Record<string, unknown> };
+
+      await service.bypass(async () => undefined);
+      subscriber.beforeFindMany(event);
+
+      expect(event.params.where).toEqual({ _softDeletedAt: { $null: true } });
+    });
+
+    it('filters interleaved plain reads while a concurrent bypass window is open', async () => {
+      const service = createService();
+      const subscriber = getSubscriber(service);
+      const bypassedEvent = { params: {} as Record<string, unknown> };
+      const plainEvent = { params: {} as Record<string, unknown> };
+
+      await Promise.all([
+        service.bypass(async () => {
+          await yieldToEventLoop();
+          subscriber.beforeFindMany(bypassedEvent);
+          await yieldToEventLoop();
+        }),
+        (async () => {
+          await yieldToEventLoop();
+          subscriber.beforeFindMany(plainEvent);
+        })(),
+      ]);
+
+      expect(bypassedEvent.params.where).toBeUndefined();
+      expect(plainEvent.params.where).toEqual({ _softDeletedAt: { $null: true } });
+    });
+
+    it('does not leak an open bypass window into a plain read started before it', async () => {
+      const service = createService();
+      const subscriber = getSubscriber(service);
+      const plainEvent = { params: {} as Record<string, unknown> };
+      const bypassedEvent = { params: {} as Record<string, unknown> };
+
+      const plainRead = (async () => {
+        await yieldToEventLoop();
+        await yieldToEventLoop();
+        subscriber.beforeFindMany(plainEvent);
+      })();
+      const bypassedRead = service.bypass(async () => {
+        await yieldToEventLoop();
+        subscriber.beforeFindMany(bypassedEvent);
+        await yieldToEventLoop();
+        await yieldToEventLoop();
+      });
+      await Promise.all([plainRead, bypassedRead]);
+
+      expect(plainEvent.params.where).toEqual({ _softDeletedAt: { $null: true } });
+      expect(bypassedEvent.params.where).toBeUndefined();
+    });
+
+    it('propagates the bypass context into a strapi.db.transaction callback', async () => {
+      const service = createService();
+      const subscriber = getSubscriber(service);
+      const event = { params: {} as Record<string, unknown> };
+
+      await service.bypass(async () => {
+        await mock.strapi.db.transaction(async () => {
+          await yieldToEventLoop();
+          subscriber.beforeFindMany(event);
+        });
+      });
+
+      expect(event.params.where).toBeUndefined();
+    });
+  });
 });

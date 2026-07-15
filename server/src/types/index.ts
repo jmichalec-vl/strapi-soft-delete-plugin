@@ -12,4 +12,14 @@ export type {
   AuthStrategy,
   ResolvedAuth,
   LifecycleHookPayload,
+  LifecycleHookResult,
+  LifecycleHookHandlerResult,
 } from './soft-deleted-entry';
+
+export type {
+  SoftDeleteApi,
+  SoftDeleteApiOptions,
+  SoftDeleteApiSoftDeleteOptions,
+  SoftDeleteFindParams,
+  SoftDeleteOperationResult,
+} from './public-api';

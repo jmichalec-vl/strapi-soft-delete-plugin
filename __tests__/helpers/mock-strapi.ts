@@ -36,16 +36,52 @@ const createMockStore = (): MockStoreInstance => ({
   set: vi.fn().mockResolvedValue(undefined),
 });
 
+interface RecordedKnexUpdate {
+  readonly tableName: string;
+  readonly where: Record<string, unknown>;
+  readonly data: Record<string, unknown>;
+}
+
+const SNAKE_CASE_COLUMNS: Readonly<Record<string, string>> = {
+  documentId: 'document_id',
+  locale: 'locale',
+  _softDeletedAt: 'soft_deleted_at',
+  _softDeletedById: 'soft_deleted_by_id',
+  _softDeletedByType: 'soft_deleted_by_type',
+};
+
 export const createMockStrapi = () => {
   const queryMap = new Map<string, MockQueryMethods>();
   const services = new Map<string, MockPluginService>();
   const store = createMockStore();
+  const knexUpdates: RecordedKnexUpdate[] = [];
+  const mockTrx = { __mockTransaction: true };
 
   const getQueryForUid = (uid: string): MockQueryMethods => {
     if (!queryMap.has(uid)) {
       queryMap.set(uid, createMockQueryMethods());
     }
     return queryMap.get(uid)!;
+  };
+
+  // Minimal chainable knex query builder recording update() calls
+  const createKnexBuilder = (tableName: string) => {
+    let recordedWhere: Record<string, unknown> = {};
+
+    const builder = {
+      transacting: vi.fn(() => builder),
+      where: vi.fn((column: string | Record<string, unknown>, value?: unknown) => {
+        recordedWhere =
+          typeof column === 'string' ? { ...recordedWhere, [column]: value } : { ...column };
+        return builder;
+      }),
+      update: vi.fn(async (data: Record<string, unknown>) => {
+        knexUpdates.push({ tableName, where: recordedWhere, data });
+        return 1;
+      }),
+    };
+
+    return builder;
   };
 
   const mockStrapi = {
@@ -56,6 +92,37 @@ export const createMockStrapi = () => {
         enable: vi.fn(),
         subscribe: vi.fn(),
       },
+      metadata: {
+        get: vi.fn((uid: string) => ({
+          uid,
+          tableName: `${uid.split('.').pop() ?? uid}s`,
+          attributes: Object.fromEntries(
+            Object.entries(SNAKE_CASE_COLUMNS).map(([attribute, columnName]) => [
+              attribute,
+              { type: 'string', columnName },
+            ]),
+          ),
+        })),
+      },
+      getConnection: vi.fn((tableName: string) => createKnexBuilder(tableName)),
+      transaction: vi.fn(
+        async <T>(
+          cb: (params: {
+            trx: unknown;
+            commit: () => Promise<void>;
+            rollback: () => Promise<void>;
+            onCommit: (fn: () => unknown) => void;
+            onRollback: (fn: () => unknown) => void;
+          }) => Promise<T>,
+        ): Promise<T> =>
+          cb({
+            trx: mockTrx,
+            commit: vi.fn(),
+            rollback: vi.fn(),
+            onCommit: vi.fn(),
+            onRollback: vi.fn(),
+          }),
+      ),
     },
 
     documents: Object.assign(vi.fn(), {
@@ -121,6 +188,7 @@ export const createMockStrapi = () => {
       info: vi.fn(),
       error: vi.fn(),
       warn: vi.fn(),
+      debug: vi.fn(),
     },
   };
 
@@ -130,6 +198,7 @@ export const createMockStrapi = () => {
     services,
     store,
     getQueryForUid,
+    knexUpdates,
 
     registerService: (pluginId: string, serviceName: string, service: MockPluginService) => {
       services.set(`${pluginId}::${serviceName}`, service);

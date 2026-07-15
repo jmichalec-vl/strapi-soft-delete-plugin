@@ -81,6 +81,11 @@ export default () => ({
 });
 ```
 
+Auto-purge uses the same per-document permanent-delete path as the admin's "Delete permanently": components and dynamic zones are cleaned up, the `beforeDeletePermanently`/`afterDeletePermanently` hooks fire, and an `entry.delete` event is emitted per purged entry. Two purge-specific behaviors:
+
+- **Per-document error isolation** — unlike the interactive path (where a hook throw/veto propagates to the caller), a purge failure for one document is caught, logged, and skipped so the unattended cron run never wedges on a single bad document. The failed document is retried on the next run. To veto purging permanently, keep throwing from `beforeDeletePermanently`.
+- **Partially-expired documents are skipped** — a document is purged only when ALL of its rows are expired. If some rows are still live or were trashed more recently (e.g. only one locale was deleted), the document is left alone.
+
 ## RBAC Permissions
 
 Configure per-role in **Settings → Roles → [Role Name]**:
@@ -122,7 +127,8 @@ export default {
 
     hooks.register('beforeSoftDelete', async ({ uid, documentId, entries, auth }) => {
       console.log(`About to soft-delete ${documentId} from ${uid}`);
-      // Return { cancel: true } to prevent the operation
+      // Return { cancel: true } to prevent the operation,
+      // or throw to fail it with your own error
     });
 
     hooks.register('afterRestore', async ({ uid, documentId, entries, auth }) => {
@@ -138,7 +144,108 @@ Available hooks:
 - `beforeRestore` / `afterRestore`
 - `beforeDeletePermanently` / `afterDeletePermanently`
 
-All `before*` hooks can return `{ cancel: true }` to abort the operation.
+### Hook Error Semantics
+
+Since 0.2.0, handler errors and cancellations propagate to the caller instead of being silently swallowed:
+
+| Handler behavior                             | Result                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `before*` handler throws                     | Operation aborts; the error propagates to the caller (e.g. `errors.ApplicationError` from `@strapi/utils` → HTTP 400 in the admin)                                                                                                                                        |
+| `before*` handler returns `{ cancel: true }` | Operation aborts with a `PolicyError` — `"Operation cancelled by <hookName> hook"` (HTTP 403)                                                                                                                                                                             |
+| `before*` returns `{ cancel: true, error }`  | Operation aborts with your `error`                                                                                                                                                                                                                                        |
+| `after*` handler throws                      | The error propagates to the caller. For **soft-delete and restore** the operation is **ROLLED BACK** (the write and the `after*` hooks share a plugin-owned transaction). For **permanent delete** the rows are already gone — the error surfaces but nothing is restored |
+
+Notes:
+
+- Handlers run in registration order; the first throw/cancel stops the chain.
+- The soft-delete/restore write and its `after*` hooks run inside one plugin-owned transaction, so host cascades are atomic: if your `afterSoftDelete` cascade fails, the parent is NOT left half-trashed. Events (`entry.delete`/`entry.update`) are emitted only after the transaction commits.
+- For user-visible messages, throw `errors.ApplicationError` (HTTP 400) or `errors.PolicyError` (HTTP 403) from `@strapi/utils`. A plain `errors.ForbiddenError` reaches the caller as a generic `"Forbidden"` — Strapi's route layer masks its message.
+
+## Webhook Events
+
+The plugin emits `entry.delete` (actions `soft-delete` and `delete-permanently`) and `entry.update` (action `restore`) to the event hub, with the plugin identified in the payload: `plugin: { id: 'soft-delete', action }`.
+
+Event entries are sanitized against the content type's schema before they are emitted — the same `defaultSanitizeOutput` the core document service applies to its own `entry.*` events. Password-type attributes and every `private: true` attribute never reach webhook consumers. The plugin's own bookkeeping fields (`_softDeletedAt`, `_softDeletedById`, `_softDeletedByType`) are private attributes and are stripped too, matching the v4 plugin's behavior — the event's `plugin.action` field already tells consumers what happened.
+
+## Programmatic API
+
+Server-side code (bootstrap, cron jobs, other plugins) can drive soft-delete operations through the `api` service:
+
+```typescript
+const api = strapi.plugin('soft-delete').service('api');
+
+// Same code path as an intercepted documents().delete — hooks + events fire
+await api.softDelete('api::article.article', documentId);
+
+// i18n: soft-delete a single locale — other locales stay live
+// (mirrors documents().delete({ documentId, locale }); '*' or omitted = all locales)
+await api.softDelete('api::article.article', documentId, { locale: 'fr' });
+
+// Fires beforeRestore/afterRestore; respects restoration-behavior settings
+await api.restore('api::article.article', documentId);
+
+// Includes component/dynamic-zone cleanup
+await api.deletePermanently('api::article.article', documentId);
+
+// Paginated trash listing (only soft-deleted documents)
+const trashed = await api.findSoftDeleted('api::article.article', { page: 1, pageSize: 10 });
+
+// Run reads with the soft-delete filter off — the ONLY supported way to see trashed rows
+const rows = await api.withSoftDeleted(() =>
+  strapi.db.query('api::article.article').findMany({ where: { _softDeletedAt: { $ne: null } } }),
+);
+```
+
+Notes:
+
+- Every method throws an `ApplicationError` when `uid` is not an `api::` content type.
+- `softDelete`, `restore`, and `deletePermanently` run the plugin lifecycle hooks exactly like the admin operations do — the returned promise **rejects** when a `before*` handler throws or returns `{ cancel: true }`, and when an `after*` handler throws (see [Hook Error Semantics](#hook-error-semantics)).
+- Outside an HTTP request (cron, CLI, bootstrap), pass `{ auth: { id, strategy } }` as the last argument to attribute the operation; by default attribution is resolved from the current request.
+- `softDelete` accepts an optional `{ locale }` for localized content types: a concrete locale soft-deletes only that locale's rows (the intercepted admin delete honors its `locale` param the same way); `'*'` or omitted soft-deletes every locale.
+- Types ship with the package: `import type { SoftDeleteApi } from 'strapi-soft-delete-plugin'`.
+
+### Worked example: cascading soft delete and restore
+
+Soft-delete a product's variants together with the product, and bring them back on restore:
+
+```typescript
+// src/index.ts
+export default {
+  async bootstrap({ strapi }) {
+    const hooks = strapi.plugin('soft-delete').service('lifecycle-hooks');
+    const api = strapi.plugin('soft-delete').service('api');
+
+    hooks.register('afterSoftDelete', async ({ uid, documentId }) => {
+      if (uid !== 'api::product.product') return;
+
+      const variants = await strapi.db.query('api::variant.variant').findMany({
+        where: { product: { documentId } },
+      });
+
+      for (const variant of variants) {
+        await api.softDelete('api::variant.variant', variant.documentId);
+      }
+    });
+
+    hooks.register('afterRestore', async ({ uid, documentId }) => {
+      if (uid !== 'api::product.product') return;
+
+      // Trashed variants are invisible to normal reads — look them up with the filter off
+      const variants = await api.withSoftDeleted(() =>
+        strapi.db.query('api::variant.variant').findMany({
+          where: { product: { documentId }, _softDeletedAt: { $ne: null } },
+        }),
+      );
+
+      for (const variant of variants) {
+        await api.restore('api::variant.variant', variant.documentId);
+      }
+    });
+  },
+};
+```
+
+A failure while cascading (e.g. one `api.softDelete` call rejects) propagates out of the `after*` hook and **rolls the parent operation back** — the plugin-owned transaction spans the parent write, your `after*` cascade, and the children's writes, so the whole cascade is atomic.
 
 ## How It Works
 

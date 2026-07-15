@@ -152,7 +152,7 @@ Permission UIDs have changed to avoid collision with Content Manager:
 | `plugin::soft-delete.explorer.restore`            | `plugin::soft-delete.explorer.restore` (unchanged)            |
 | `plugin::soft-delete.explorer.delete-permanently` | `plugin::soft-delete.explorer.delete-permanently` (unchanged) |
 
-Existing role permissions will need to be re-granted for the renamed permission after upgrading.
+**Since 0.2.0 this is migrated automatically:** on first boot the plugin rewrites existing `admin::permission` rows from `plugin::soft-delete.explorer.read` to `plugin::soft-delete.explorer.soft-deleted-read`, so every role keeps its trash access — no manual re-granting needed. The migration is idempotent and runs once (guarded by the plugin store's migration version). The other v4 action names (`read`, `settings`, `explorer.restore`, `explorer.delete-permanently`) are unchanged and need no migration.
 
 ## New Features in v5
 
@@ -163,3 +163,32 @@ Existing role permissions will need to be re-granted for the renamed permission 
 - **Component cleanup** — permanent delete properly cleans up components and dynamic zones
 - **Populated relation filtering** — soft-deleted entries are excluded from populated relations
 - **Custom lifecycle hooks** — `beforeSoftDelete`, `afterSoftDelete`, `beforeRestore`, `afterRestore`, `beforeDeletePermanently`, `afterDeletePermanently`
+
+## Upgrading from 0.1.x to 0.2.0
+
+### Lifecycle hook errors now propagate (behavioral change)
+
+In 0.1.x, exceptions thrown by lifecycle hook handlers were caught and logged, and `{ cancel: true }` made the operation silently report success (a delete request returned `{ documentId, entries: [] }`). Since 0.2.0:
+
+- An exception thrown by a `before*` handler aborts the operation and propagates to the caller. In the admin, an `errors.ApplicationError('...')` from `@strapi/utils` surfaces as an HTTP 400 with your message.
+- `{ cancel: true }` is no longer silent — the operation fails with a `PolicyError` (`"Operation cancelled by <hookName> hook"`, HTTP 403). Return `{ cancel: true, error: myError }` to fail with a custom error instead.
+- An exception thrown by an `after*` handler also propagates. For soft-delete and restore the operation is **rolled back** — the write and the `after*` hooks run inside a plugin-owned transaction, making host cascades atomic. For permanent delete the rows are already gone when `afterDeletePermanently` runs; the error surfaces but nothing is restored.
+- A failing handler stops the handler chain — later handlers for the same hook do not run.
+
+If you relied on hooks failing silently (e.g. best-effort logging or notifications), wrap your handler body in `try/catch`.
+
+### Internal writes no longer disable lifecycles globally
+
+0.1.x wrapped its internal soft-delete/restore updates in `strapi.db.lifecycles.disable()/enable()` — a process-global switch that could silently skip a concurrent request's DB lifecycles (validations, timestamps, ...). 0.2.0 performs these writes as raw, statement-scoped SQL updates instead: your lifecycles still never fire for the plugin's internal writes, and other requests are no longer affected.
+
+### RBAC permission rows are migrated on first boot
+
+0.1.x recognized only the new `plugin::soft-delete.explorer.soft-deleted-read` action, silently dropping trash access for roles that still carried the v4 `plugin::soft-delete.explorer.read` rows. 0.2.0 rewrites those rows automatically on its first boot (see [RBAC Permissions](#rbac-permissions) above). No manual action needed.
+
+### Event payloads are sanitized
+
+0.1.x emitted raw database entities to the event hub — webhook consumers received password-type fields, `private: true` attributes, and the plugin's `_softDeletedAt`/`_softDeletedById`/`_softDeletedByType` bookkeeping columns. 0.2.0 sanitizes every emitted entry against the content type's schema (core's `defaultSanitizeOutput`), so none of those reach webhook consumers — the same behavior as the v4 plugin. If a webhook relied on `_softDeletedAt` in the payload, use the event's `plugin.action` field (`soft-delete`, `restore`, `delete-permanently`) instead.
+
+### Auto-purge now matches the permanent-delete path
+
+0.1.x purged expired entries with a raw `deleteMany` — component/dynamic-zone rows were orphaned, and no hooks or events fired. 0.2.0 routes each expired document through the same permanent-delete path the admin uses: components are cleaned up, `beforeDeletePermanently`/`afterDeletePermanently` hooks fire, and an `entry.delete` event is emitted per purged entry. A hook throw/veto during a purge run skips that document (logged, retried next run) instead of aborting the whole run, and documents that still have non-expired rows are never purged.
