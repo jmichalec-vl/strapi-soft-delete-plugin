@@ -33,6 +33,46 @@ export default {
       },
     },
     {
+      method: 'GET',
+      path: '/test-utils/soft-delete-hook-log',
+      handler: 'test-utils.getSoftDeleteHookLog',
+      config: {
+        auth: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/test-utils/soft-delete-hook-log/clear',
+      handler: 'test-utils.clearSoftDeleteHookLog',
+      config: {
+        auth: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/test-utils/run-auto-purge',
+      handler: 'test-utils.runAutoPurge',
+      config: {
+        auth: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/test-utils/backdate-soft-delete',
+      handler: 'test-utils.backdateSoftDelete',
+      config: {
+        auth: false,
+      },
+    },
+    {
+      method: 'POST',
+      path: '/test-utils/count-rows',
+      handler: 'test-utils.countRows',
+      config: {
+        auth: false,
+      },
+    },
+    {
       method: 'POST',
       path: '/test-utils/public-api',
       handler: 'test-utils.invokePublicApi',

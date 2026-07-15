@@ -81,6 +81,11 @@ export default () => ({
 });
 ```
 
+Auto-purge uses the same per-document permanent-delete path as the admin's "Delete permanently": components and dynamic zones are cleaned up, the `beforeDeletePermanently`/`afterDeletePermanently` hooks fire, and an `entry.delete` event is emitted per purged entry. Two purge-specific behaviors:
+
+- **Per-document error isolation** — unlike the interactive path (where a hook throw/veto propagates to the caller), a purge failure for one document is caught, logged, and skipped so the unattended cron run never wedges on a single bad document. The failed document is retried on the next run. To veto purging permanently, keep throwing from `beforeDeletePermanently`.
+- **Partially-expired documents are skipped** — a document is purged only when ALL of its rows are expired. If some rows are still live or were trashed more recently (e.g. only one locale was deleted), the document is left alone.
+
 ## RBAC Permissions
 
 Configure per-role in **Settings → Roles → [Role Name]**:

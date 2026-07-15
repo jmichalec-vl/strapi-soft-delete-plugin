@@ -26,6 +26,61 @@ export default {
     ctx.body = { reset: true };
   },
 
+  async getSoftDeleteHookLog(ctx) {
+    ctx.body = {
+      log: (globalThis as Record<string, unknown>).__softDeleteHookLog ?? [],
+    };
+  },
+
+  async clearSoftDeleteHookLog(ctx) {
+    (globalThis as Record<string, unknown>).__softDeleteHookLog = [];
+    ctx.body = { cleared: true };
+  },
+
+  // Runs the plugin's auto-purge service directly (instead of waiting for
+  // cron) so E2E tests can exercise the TTL purge on demand.
+  async runAutoPurge(ctx) {
+    const { ttlDays } = ctx.request.body as { ttlDays: number };
+
+    const purged = await strapi
+      .plugin('soft-delete')
+      .service('auto-purge')
+      .purgeExpiredEntries(ttlDays);
+
+    ctx.body = { purged };
+  },
+
+  // Rewrites _softDeletedAt for a document so tests can simulate entries
+  // trashed in the past (beyond the auto-purge TTL).
+  async backdateSoftDelete(ctx) {
+    const { uid, documentId, date } = ctx.request.body as {
+      uid: string;
+      documentId: string;
+      date: string;
+    };
+    const api = strapi.plugin('soft-delete').service('api');
+
+    const result = await api.withSoftDeleted(() =>
+      strapi.db.query(uid).updateMany({
+        where: { documentId },
+        data: { _softDeletedAt: date },
+      }),
+    );
+
+    ctx.body = { count: result?.count ?? 0 };
+  },
+
+  // Raw row count with the soft-delete filter off — works for content types
+  // AND component tables, so tests can assert component rows were purged.
+  async countRows(ctx) {
+    const { uid, where } = ctx.request.body as { uid: string; where: Record<string, unknown> };
+    const api = strapi.plugin('soft-delete').service('api');
+
+    const count = await api.withSoftDeleted(() => strapi.db.query(uid).count({ where }));
+
+    ctx.body = { count };
+  },
+
   // Invokes the plugin's programmatic API (server-only) so E2E tests can
   // exercise it over HTTP: { method, uid, documentId?, params?, options? }.
   async invokePublicApi(ctx) {

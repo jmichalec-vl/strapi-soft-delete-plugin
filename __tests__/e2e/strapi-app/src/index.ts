@@ -63,11 +63,25 @@ const getSoftDeleteHookBehaviors = (): Record<string, SoftDeleteHookBehavior | u
   return globals.__softDeleteHookBehaviors as Record<string, SoftDeleteHookBehavior | undefined>;
 };
 
+interface SoftDeleteHookLogEntry {
+  readonly hook: string;
+  readonly uid: string;
+  readonly documentId: string;
+}
+
+const logSoftDeleteHookInvocation = (entry: SoftDeleteHookLogEntry): void => {
+  const globals = globalThis as Record<string, unknown>;
+  globals.__softDeleteHookLog = globals.__softDeleteHookLog ?? [];
+  (globals.__softDeleteHookLog as SoftDeleteHookLogEntry[]).push(entry);
+};
+
 const registerSoftDeleteTestHooks = (strapi: any): void => {
   const hooks = strapi.plugin('soft-delete').service('lifecycle-hooks');
 
   for (const hookName of SOFT_DELETE_HOOK_NAMES) {
-    hooks.register(hookName, async () => {
+    hooks.register(hookName, async ({ uid, documentId }: { uid: string; documentId: string }) => {
+      logSoftDeleteHookInvocation({ hook: hookName, uid, documentId });
+
       const behavior = getSoftDeleteHookBehaviors()[hookName];
 
       if (behavior === 'throw') {
