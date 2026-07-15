@@ -1,4 +1,5 @@
 import type { Core, UID } from '@strapi/types';
+import type { Knex } from 'knex';
 
 import { PLUGIN_ID, SOFT_DELETE_FIELD_NAMES } from '../constants';
 import type {
@@ -9,8 +10,55 @@ import type {
   SoftDeleteFindParams,
   SoftDeleteOperationResult,
 } from '../types';
+import type { EmitParams } from './event-emitter';
 
 const { DELETED_AT, DELETED_BY_ID, DELETED_BY_TYPE } = SOFT_DELETE_FIELD_NAMES;
+
+interface SoftDeleteColumnValues {
+  readonly deletedAt: Date | null;
+  readonly deletedById: number | null;
+  readonly deletedByType: string | null;
+}
+
+/**
+ * Raw, statement-scoped knex update of the soft-delete columns for every row
+ * of a document.
+ *
+ * Deliberately bypasses the query engine so core DB lifecycles
+ * (beforeUpdate/afterUpdate/...) don't fire for the internal write. This
+ * replaces the former process-global `strapi.db.lifecycles.disable()/enable()`
+ * switch, which silently skipped every CONCURRENT request's lifecycles
+ * (host validations, timestamps, ...) during the write window.
+ */
+const updateSoftDeleteColumns = async (
+  uid: string,
+  documentId: string,
+  values: SoftDeleteColumnValues,
+  trx: Knex.Transaction,
+): Promise<void> => {
+  const metadata = strapi.db.metadata.get(uid);
+
+  const column = (attributeName: string): string => {
+    const attribute = metadata.attributes[attributeName];
+    const columnName = attribute && 'columnName' in attribute ? attribute.columnName : undefined;
+
+    if (!columnName) {
+      throw new Error(`[soft-delete] Missing column metadata for "${attributeName}" on "${uid}"`);
+    }
+
+    return columnName;
+  };
+
+  await strapi.db
+    .getConnection(metadata.tableName)
+    .transacting(trx)
+    .where(column('documentId'), documentId)
+    .update({
+      [column(DELETED_AT)]: values.deletedAt,
+      [column(DELETED_BY_ID)]: values.deletedById,
+      [column(DELETED_BY_TYPE)]: values.deletedByType,
+    });
+};
 
 export type FindManyParams = SoftDeleteFindParams;
 
@@ -89,12 +137,18 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
     return { ...entry, _softDeletedBy: deletedBy } as SoftDeletedEntry;
   };
 
+  /**
+   * Runs inside the restore transaction. Returns the events to emit once the
+   * transaction commits instead of emitting them itself — consumers must not
+   * be notified about writes that may still roll back.
+   */
   const handleSingleTypeConflict = async (
     uid: string,
     restoredDocumentId: string,
     settings: PluginSettings,
     auth: ResolvedAuth,
-  ): Promise<void> => {
+    trx: Knex.Transaction,
+  ): Promise<readonly EmitParams[]> => {
     const conflictingEntries = await strapi.db.query(uid).findMany({
       where: {
         documentId: { $ne: restoredDocumentId },
@@ -102,46 +156,35 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
       },
     });
 
-    if (conflictingEntries.length === 0) return;
+    if (conflictingEntries.length === 0) return [];
 
     const bypass = getBypass();
-    const eventEmitter = getEventEmitter();
     const conflictingDocumentIds = [
       ...new Set(conflictingEntries.map((e: Record<string, unknown>) => e.documentId as string)),
     ];
 
     if (settings.singleTypesRestorationBehavior === 'soft-delete') {
-      const now = new Date().toISOString();
+      const deletedAt = new Date();
 
-      // Disable ALL lifecycles for update — suppress beforeUpdate/afterUpdate
-      strapi.db.lifecycles.disable();
-      try {
-        for (const conflictDocId of conflictingDocumentIds) {
-          await strapi.db.query(uid).updateMany({
-            where: { documentId: conflictDocId },
-            data: {
-              [DELETED_AT]: now,
-              [DELETED_BY_ID]: auth.id,
-              [DELETED_BY_TYPE]: auth.strategy,
-            },
-          });
-        }
-      } finally {
-        strapi.db.lifecycles.enable();
-      }
-
-      for (const entry of conflictingEntries) {
-        await eventEmitter.emit({
+      for (const conflictDocId of conflictingDocumentIds) {
+        await updateSoftDeleteColumns(
           uid,
-          event: 'entry.update',
-          action: 'soft-delete',
-          entity: entry,
-        });
+          conflictDocId,
+          { deletedAt, deletedById: auth.id, deletedByType: auth.strategy },
+          trx,
+        );
       }
-      return;
+
+      return conflictingEntries.map((entry: Record<string, unknown>) => ({
+        uid,
+        event: 'entry.update',
+        action: 'soft-delete',
+        entity: entry,
+      }));
     }
 
-    // delete-permanently branch with component cleanup
+    // delete-permanently branch with component cleanup — these db.query
+    // deletes join the ambient transaction via Strapi's transaction context
     await bypass(async () => {
       for (const entry of conflictingEntries) {
         const entryId = (entry as { id: number }).id;
@@ -155,14 +198,12 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
       }
     });
 
-    for (const entry of conflictingEntries) {
-      await eventEmitter.emit({
-        uid,
-        event: 'entry.delete',
-        action: 'delete-permanently',
-        entity: entry,
-      });
-    }
+    return conflictingEntries.map((entry: Record<string, unknown>) => ({
+      uid,
+      event: 'entry.delete',
+      action: 'delete-permanently',
+      entity: entry,
+    }));
   };
 
   /**
@@ -172,6 +213,8 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
    * Fires `beforeSoftDelete`/`afterSoftDelete` hooks and emits an
    * `entry.delete` event per affected entry. Rejects when a hook handler
    * throws or a `before*` handler cancels — the write does not happen.
+   * The write and the `afterSoftDelete` hooks run in a plugin-owned
+   * transaction, so an after-hook throw ROLLS BACK the soft delete.
    */
   const softDeleteDocument = async (
     uid: string,
@@ -193,6 +236,7 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
 
     // Throws on handler error or { cancel: true } — the delete request then
     // fails with that error instead of reporting a silent empty success.
+    // Fired BEFORE the transaction: a veto never opens one.
     await lifecycleHooks.fire('beforeSoftDelete', {
       uid,
       documentId,
@@ -200,36 +244,29 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
       auth,
     });
 
-    const now = new Date().toISOString();
+    // Plugin-owned transaction: the middleware replaces the core delete, so
+    // there is NO ambient document-service transaction here. Spanning the
+    // write AND the after-hooks makes host cascades atomic — an
+    // afterSoftDelete throw rolls the soft delete back.
+    const softDeletedEntries = await strapi.db.transaction(async ({ trx }) => {
+      await updateSoftDeleteColumns(
+        uid,
+        documentId,
+        { deletedAt: new Date(), deletedById: auth.id, deletedByType: auth.strategy },
+        trx,
+      );
 
-    // Disable ALL lifecycles for the update — we don't want beforeUpdate/afterUpdate
-    // to fire during soft-delete. Only our custom hooks should run.
-    strapi.db.lifecycles.disable();
-    try {
-      await strapi.db.query(uid).updateMany({
-        where: { documentId },
-        data: {
-          [DELETED_AT]: now,
-          [DELETED_BY_ID]: auth.id,
-          [DELETED_BY_TYPE]: auth.strategy,
-        },
-      });
-    } finally {
-      strapi.db.lifecycles.enable();
-    }
+      // db.query joins the transaction via Strapi's transaction context;
+      // bypass our subscriber to fetch the now-soft-deleted entries
+      const entries = await bypass(() => strapi.db.query(uid).findMany({ where: { documentId } }));
 
-    // Bypass subscriber to fetch the now-soft-deleted entries
-    const softDeletedEntries = await bypass(() =>
-      strapi.db.query(uid).findMany({ where: { documentId } }),
-    );
+      await lifecycleHooks.fire('afterSoftDelete', { uid, documentId, entries, auth });
 
-    await lifecycleHooks.fire('afterSoftDelete', {
-      uid,
-      documentId,
-      entries: softDeletedEntries,
-      auth,
+      return entries;
     });
 
+    // Emitted only after the transaction commits — consumers are never
+    // notified about a rolled-back write.
     for (const entry of softDeletedEntries) {
       await eventEmitter.emit({
         uid,
@@ -317,7 +354,8 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
 
     const auth = authOverride ?? getAuthResolver().resolveAuth();
 
-    // Throws on handler error or { cancel: true } — the restore then fails with that error
+    // Throws on handler error or { cancel: true } — the restore then fails
+    // with that error. Fired BEFORE the transaction: a veto never opens one.
     await lifecycleHooks.fire('beforeRestore', {
       uid,
       documentId,
@@ -325,44 +363,54 @@ const softDelete = ({ strapi }: { strapi: Core.Strapi }) => {
       auth,
     });
 
-    // Disable ALL lifecycles for update — suppress beforeUpdate/afterUpdate
-    strapi.db.lifecycles.disable();
-    try {
-      await strapi.db.query(uid).updateMany({
-        where: { documentId },
-        data: { [DELETED_AT]: null, [DELETED_BY_ID]: null, [DELETED_BY_TYPE]: null },
-      });
-    } finally {
-      strapi.db.lifecycles.enable();
-    }
-
-    const restoredEntries = await strapi.db.query(uid).findMany({
-      where: { documentId },
-    });
-
     const contentType = strapi.contentTypes[uid as keyof typeof strapi.contentTypes];
     const hasDraftAndPublish = contentType?.options?.draftAndPublish;
 
-    if (hasDraftAndPublish && settings.draftPublishRestorationBehavior === 'draft') {
-      try {
-        // SAFETY: strapi.documents() typing doesn't accept dynamic uid
-        await (
-          strapi.documents as unknown as (
-            ...args: unknown[]
-          ) => Record<string, (...args: unknown[]) => unknown>
-        )(uid).unpublish({
-          documentId,
-        });
-      } catch {
-        /* Entry may already be in draft state */
+    // Plugin-owned transaction spanning the restore write, the D&P/single-type
+    // follow-ups, and the afterRestore hooks — an after-hook throw rolls the
+    // whole restore back.
+    const { restoredEntries, deferredEvents } = await strapi.db.transaction(async ({ trx }) => {
+      await updateSoftDeleteColumns(
+        uid,
+        documentId,
+        { deletedAt: null, deletedById: null, deletedByType: null },
+        trx,
+      );
+
+      const entries = await strapi.db.query(uid).findMany({
+        where: { documentId },
+      });
+
+      if (hasDraftAndPublish && settings.draftPublishRestorationBehavior === 'draft') {
+        try {
+          // SAFETY: strapi.documents() typing doesn't accept dynamic uid
+          await (
+            strapi.documents as unknown as (
+              ...args: unknown[]
+            ) => Record<string, (...args: unknown[]) => unknown>
+          )(uid).unpublish({
+            documentId,
+          });
+        } catch {
+          /* Entry may already be in draft state */
+        }
       }
-    }
 
-    if (kind === 'singleType') {
-      await handleSingleTypeConflict(uid, documentId, settings, auth);
-    }
+      const singleTypeEvents =
+        kind === 'singleType'
+          ? await handleSingleTypeConflict(uid, documentId, settings, auth, trx)
+          : [];
 
-    await lifecycleHooks.fire('afterRestore', { uid, documentId, entries: restoredEntries, auth });
+      await lifecycleHooks.fire('afterRestore', { uid, documentId, entries, auth });
+
+      return { restoredEntries: entries, deferredEvents: singleTypeEvents };
+    });
+
+    // Emitted only after the transaction commits — consumers are never
+    // notified about a rolled-back write.
+    for (const event of deferredEvents) {
+      await eventEmitter.emit(event);
+    }
 
     for (const entry of restoredEntries) {
       await eventEmitter.emit({ uid, event: 'entry.update', action: 'restore', entity: entry });

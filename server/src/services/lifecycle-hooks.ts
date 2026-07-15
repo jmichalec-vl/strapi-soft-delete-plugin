@@ -38,12 +38,12 @@ const lifecycleHooks = ({ strapi }: { strapi: Core.Strapi }) => {
      *   and surfaces to the caller (the admin/API request fails with that error).
      * - A `before*` handler returning `{ cancel: true }` throws `error` if
      *   provided, otherwise a default ForbiddenError. Later handlers don't run.
-     * - `after*` handler exceptions also propagate. NOTE: the plugin's document
-     *   service middleware runs OUTSIDE Strapi's document-service transaction
-     *   (the transaction only wraps the core repository method, which the
-     *   middleware replaces), so by the time an `after*` hook throws, the
-     *   soft-delete/restore write is already committed. The caller sees the
-     *   error, but the operation is NOT rolled back.
+     * - `after*` handler exceptions also propagate. For soft-delete and
+     *   restore the write and the `after*` hooks run inside a plugin-owned
+     *   transaction, so the throw ROLLS BACK the operation — host cascades
+     *   are atomic. For permanent delete the rows are already gone when
+     *   `afterDeletePermanently` runs; a throw surfaces the error but does
+     *   not bring them back.
      */
     async fire(hookName: HookName, payload: LifecycleHookPayload): Promise<void> {
       const handlers = getHandlers(hookName);

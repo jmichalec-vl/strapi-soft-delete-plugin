@@ -167,7 +167,7 @@ describe('lifecycle hook error propagation', () => {
     expect(await findSoftDeletedArticle(article.documentId)).toBeNull();
   });
 
-  it('afterSoftDelete throw → request fails but the soft delete stays COMMITTED', async () => {
+  it('afterSoftDelete throw → request fails and the soft delete is ROLLED BACK', async () => {
     const slug = uniqueSlug('hook-throw-after-sd');
     const article = await createArticle(slug, 'After Hook Throw Article');
 
@@ -180,15 +180,32 @@ describe('lifecycle hook error propagation', () => {
 
     await resetHookBehaviors();
 
-    // EMPIRICAL RESULT: the plugin middleware replaces the core delete, so it runs
-    // OUTSIDE Strapi's document-service transaction (wrapInTransaction only wraps
-    // the core repository method, which is never called). The soft-delete updateMany
-    // is therefore already committed when afterSoftDelete throws — the caller gets
-    // the error, but the entry IS soft-deleted (no rollback).
-    expect(await findArticleBySlug(slug)).toBeNull();
+    // Since 0.2.0 the plugin opens its own transaction spanning the
+    // soft-delete write AND the afterSoftDelete hooks — the throw rolls the
+    // write back, so the entry is still live (atomic host cascades).
+    expect((await findArticleBySlug(slug))?.documentId).toBe(article.documentId);
+    expect(await findSoftDeletedArticle(article.documentId)).toBeNull();
+  });
+
+  it('afterRestore throw → request fails and the restore is ROLLED BACK', async () => {
+    const slug = uniqueSlug('hook-throw-after-restore');
+    const article = await createArticle(slug, 'After Restore Throw Article');
+    await deleteArticle(article.documentId);
     expect(await findSoftDeletedArticle(article.documentId)).not.toBeNull();
 
-    // Cleanup: restore so the trash listing doesn't grow across tests
+    await setHookBehavior('afterRestore', 'throw');
+
+    const { status, data } = await api.put(`${SD_ARTICLE_PATH}/${article.documentId}/restore`);
+
+    expect(status).toBe(400);
+    expect(JSON.stringify(data)).toContain('Blocked by afterRestore test hook');
+
+    await resetHookBehaviors();
+
+    // The restore transaction rolled back — the entry is still in the trash
+    expect(await findSoftDeletedArticle(article.documentId)).not.toBeNull();
+    expect(await findArticleBySlug(slug)).toBeNull();
+
     await restoreArticle(article.documentId);
   });
 
@@ -231,6 +248,32 @@ describe('lifecycle hook error propagation', () => {
     expect(await findSoftDeletedArticle(article.documentId)).not.toBeNull();
 
     await restoreArticle(article.documentId);
+  });
+});
+
+describe('scoped lifecycle suppression', () => {
+  // The former implementation flipped the process-global
+  // strapi.db.lifecycles.disable() switch around its internal writes, so a
+  // concurrent request's lifecycles could be silently skipped. The write is
+  // now a raw, statement-scoped knex update — other writes keep their
+  // lifecycles no matter when they run. (True cross-request parallelism is
+  // not reliably observable against the sqlite test app, whose connection
+  // pool serializes writes — the unit suite additionally asserts that no
+  // code path calls lifecycles.disable at all.)
+  it('host lifecycles keep firing for other writes immediately after a soft delete', async () => {
+    const trashedSlug = uniqueSlug('scoped-suppress-a');
+    const freshSlug = uniqueSlug('scoped-suppress-b');
+    const trashed = await createArticle(trashedSlug, 'Scoped Suppression Article A');
+    await deleteArticle(trashed.documentId);
+
+    await clearLifecycleLog();
+    await createArticle(freshSlug, 'Scoped Suppression Article B');
+
+    const log = await getLifecycleLog();
+    expect(log).toContain('beforeCreate');
+    expect(log).toContain('afterCreate');
+
+    await permanentlyDeleteArticle(trashed.documentId);
   });
 });
 

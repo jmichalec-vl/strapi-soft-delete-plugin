@@ -172,10 +172,14 @@ In 0.1.x, exceptions thrown by lifecycle hook handlers were caught and logged, a
 
 - An exception thrown by a `before*` handler aborts the operation and propagates to the caller. In the admin, an `errors.ApplicationError('...')` from `@strapi/utils` surfaces as an HTTP 400 with your message.
 - `{ cancel: true }` is no longer silent — the operation fails with a `PolicyError` (`"Operation cancelled by <hookName> hook"`, HTTP 403). Return `{ cancel: true, error: myError }` to fail with a custom error instead.
-- An exception thrown by an `after*` handler also propagates, but the operation itself is already committed at that point and is NOT rolled back.
+- An exception thrown by an `after*` handler also propagates. For soft-delete and restore the operation is **rolled back** — the write and the `after*` hooks run inside a plugin-owned transaction, making host cascades atomic. For permanent delete the rows are already gone when `afterDeletePermanently` runs; the error surfaces but nothing is restored.
 - A failing handler stops the handler chain — later handlers for the same hook do not run.
 
 If you relied on hooks failing silently (e.g. best-effort logging or notifications), wrap your handler body in `try/catch`.
+
+### Internal writes no longer disable lifecycles globally
+
+0.1.x wrapped its internal soft-delete/restore updates in `strapi.db.lifecycles.disable()/enable()` — a process-global switch that could silently skip a concurrent request's DB lifecycles (validations, timestamps, ...). 0.2.0 performs these writes as raw, statement-scoped SQL updates instead: your lifecycles still never fire for the plugin's internal writes, and other requests are no longer affected.
 
 ### RBAC permission rows are migrated on first boot
 

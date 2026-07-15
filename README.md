@@ -143,17 +143,17 @@ Available hooks:
 
 Since 0.2.0, handler errors and cancellations propagate to the caller instead of being silently swallowed:
 
-| Handler behavior                             | Result                                                                                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `before*` handler throws                     | Operation aborts; the error propagates to the caller (e.g. `errors.ApplicationError` from `@strapi/utils` → HTTP 400 in the admin)                            |
-| `before*` handler returns `{ cancel: true }` | Operation aborts with a `PolicyError` — `"Operation cancelled by <hookName> hook"` (HTTP 403)                                                                 |
-| `before*` returns `{ cancel: true, error }`  | Operation aborts with your `error`                                                                                                                            |
-| `after*` handler throws                      | The error propagates to the caller, **but the operation is already committed** — the soft-delete/restore/permanent-delete is NOT rolled back (see note below) |
+| Handler behavior                             | Result                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `before*` handler throws                     | Operation aborts; the error propagates to the caller (e.g. `errors.ApplicationError` from `@strapi/utils` → HTTP 400 in the admin)                                                                                                                                        |
+| `before*` handler returns `{ cancel: true }` | Operation aborts with a `PolicyError` — `"Operation cancelled by <hookName> hook"` (HTTP 403)                                                                                                                                                                             |
+| `before*` returns `{ cancel: true, error }`  | Operation aborts with your `error`                                                                                                                                                                                                                                        |
+| `after*` handler throws                      | The error propagates to the caller. For **soft-delete and restore** the operation is **ROLLED BACK** (the write and the `after*` hooks share a plugin-owned transaction). For **permanent delete** the rows are already gone — the error surfaces but nothing is restored |
 
 Notes:
 
 - Handlers run in registration order; the first throw/cancel stops the chain.
-- The plugin intercepts `delete` outside Strapi's document-service transaction, so an `after*` hook throw cannot roll the operation back. If you need atomic behavior, do the cascading work inside the `after*` hook and compensate on failure (e.g. restore the entry).
+- The soft-delete/restore write and its `after*` hooks run inside one plugin-owned transaction, so host cascades are atomic: if your `afterSoftDelete` cascade fails, the parent is NOT left half-trashed. Events (`entry.delete`/`entry.update`) are emitted only after the transaction commits.
 - For user-visible messages, throw `errors.ApplicationError` (HTTP 400) or `errors.PolicyError` (HTTP 403) from `@strapi/utils`. A plain `errors.ForbiddenError` reaches the caller as a generic `"Forbidden"` — Strapi's route layer masks its message.
 
 ## Programmatic API
@@ -229,7 +229,7 @@ export default {
 };
 ```
 
-A failure while cascading (e.g. one `api.softDelete` call rejects) propagates out of the `after*` hook and fails the original operation — see the error-semantics table above for what happens to the already-written parent.
+A failure while cascading (e.g. one `api.softDelete` call rejects) propagates out of the `after*` hook and **rolls the parent operation back** — the plugin-owned transaction spans the parent write, your `after*` cascade, and the children's writes, so the whole cascade is atomic.
 
 ## How It Works
 

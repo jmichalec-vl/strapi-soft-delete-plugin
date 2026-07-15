@@ -44,7 +44,7 @@ describe('soft-delete service', () => {
   describe('softDeleteDocument', () => {
     const AUTH = { id: 1, strategy: 'admin' } as const;
 
-    it('marks every entry of the document as soft-deleted', async () => {
+    it('marks every entry of the document as soft-deleted via a raw scoped update', async () => {
       const entries = [{ id: 1, documentId: 'doc-1', title: 'Test' }];
       mock
         .getQueryForUid(UID)
@@ -54,20 +54,34 @@ describe('soft-delete service', () => {
 
       const result = await service.softDeleteDocument(UID, 'doc-1', AUTH);
 
-      expect(mock.strapi.db.lifecycles.disable).toHaveBeenCalled();
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
-      expect(mock.getQueryForUid(UID).updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { documentId: 'doc-1' },
-          data: expect.objectContaining({
-            _softDeletedAt: expect.any(String),
-            _softDeletedById: 1,
-            _softDeletedByType: 'admin',
-          }),
-        }),
-      );
+      expect(mock.strapi.db.transaction).toHaveBeenCalledOnce();
+      expect(mock.knexUpdates).toEqual([
+        {
+          tableName: 'articles',
+          where: { document_id: 'doc-1' },
+          data: {
+            soft_deleted_at: expect.any(Date),
+            soft_deleted_by_id: 1,
+            soft_deleted_by_type: 'admin',
+          },
+        },
+      ]);
       expect(result.documentId).toBe('doc-1');
       expect(result.entries).toHaveLength(1);
+    });
+
+    it('never toggles the process-global lifecycle switch', async () => {
+      const entries = [{ id: 1, documentId: 'doc-1' }];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce(entries);
+      const service = createService();
+
+      await service.softDeleteDocument(UID, 'doc-1', AUTH);
+
+      expect(mock.strapi.db.lifecycles.disable).not.toHaveBeenCalled();
+      expect(mock.strapi.db.lifecycles.enable).not.toHaveBeenCalled();
     });
 
     it('returns empty entries without writing when the document has none', async () => {
@@ -77,7 +91,8 @@ describe('soft-delete service', () => {
       const result = await service.softDeleteDocument(UID, 'nonexistent', AUTH);
 
       expect(result).toEqual({ documentId: 'nonexistent', entries: [] });
-      expect(mock.getQueryForUid(UID).updateMany).not.toHaveBeenCalled();
+      expect(mock.knexUpdates).toHaveLength(0);
+      expect(mock.strapi.db.transaction).not.toHaveBeenCalled();
     });
 
     it('rejects without writing when beforeSoftDelete fire() rejects', async () => {
@@ -89,7 +104,29 @@ describe('soft-delete service', () => {
       const service = createService();
 
       await expect(service.softDeleteDocument(UID, 'doc-1', AUTH)).rejects.toBe(hookError);
-      expect(mock.getQueryForUid(UID).updateMany).not.toHaveBeenCalled();
+      expect(mock.knexUpdates).toHaveLength(0);
+      expect(mock.strapi.db.transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects and skips events when afterSoftDelete fire() rejects (transaction rolls back)', async () => {
+      const hookError = new Error('Cascade failed in afterSoftDelete');
+      const emitFn = vi.fn().mockResolvedValue(undefined);
+      const entries = [{ id: 1, documentId: 'doc-1' }];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce(entries);
+      mock.registerService('soft-delete', 'lifecycle-hooks', {
+        fire: vi
+          .fn()
+          .mockResolvedValueOnce(undefined) // beforeSoftDelete
+          .mockRejectedValueOnce(hookError), // afterSoftDelete → rollback
+      });
+      mock.registerService('soft-delete', 'event-emitter', { emit: emitFn });
+      const service = createService();
+
+      await expect(service.softDeleteDocument(UID, 'doc-1', AUTH)).rejects.toBe(hookError);
+      expect(emitFn).not.toHaveBeenCalled();
     });
 
     it('fires beforeSoftDelete and afterSoftDelete with the given auth', async () => {
@@ -133,15 +170,6 @@ describe('soft-delete service', () => {
       expect(emitFn).toHaveBeenCalledWith(
         expect.objectContaining({ uid: UID, event: 'entry.delete', action: 'soft-delete' }),
       );
-    });
-
-    it('re-enables lifecycles when the update throws', async () => {
-      mock.getQueryForUid(UID).findMany.mockResolvedValueOnce([{ id: 1, documentId: 'doc-1' }]);
-      mock.getQueryForUid(UID).updateMany.mockRejectedValueOnce(new Error('DB error'));
-      const service = createService();
-
-      await expect(service.softDeleteDocument(UID, 'doc-1', AUTH)).rejects.toThrow('DB error');
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
     });
   });
 
@@ -247,7 +275,7 @@ describe('soft-delete service', () => {
   });
 
   describe('restore', () => {
-    it('clears soft-delete fields with lifecycles disabled', async () => {
+    it('clears soft-delete columns via a raw scoped update inside a transaction', async () => {
       const entries = [{ id: 1, documentId: 'doc-1', _softDeletedAt: '2026-01-01' }];
       mock
         .getQueryForUid(UID)
@@ -257,17 +285,19 @@ describe('soft-delete service', () => {
 
       await service.restore(UID, 'doc-1', 'collectionType');
 
-      expect(mock.strapi.db.lifecycles.disable).toHaveBeenCalled();
-      expect(mock.getQueryForUid(UID).updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            _softDeletedAt: null,
-            _softDeletedById: null,
-            _softDeletedByType: null,
-          }),
-        }),
-      );
-      expect(mock.strapi.db.lifecycles.enable).toHaveBeenCalled();
+      expect(mock.strapi.db.transaction).toHaveBeenCalledOnce();
+      expect(mock.knexUpdates).toEqual([
+        {
+          tableName: 'articles',
+          where: { document_id: 'doc-1' },
+          data: {
+            soft_deleted_at: null,
+            soft_deleted_by_id: null,
+            soft_deleted_by_type: null,
+          },
+        },
+      ]);
+      expect(mock.strapi.db.lifecycles.disable).not.toHaveBeenCalled();
     });
 
     it('returns null when no entries to restore', async () => {
@@ -288,7 +318,28 @@ describe('soft-delete service', () => {
       const service = createService();
 
       await expect(service.restore(UID, 'doc-1', 'collectionType')).rejects.toBe(hookError);
-      expect(mock.getQueryForUid(UID).updateMany).not.toHaveBeenCalled();
+      expect(mock.knexUpdates).toHaveLength(0);
+    });
+
+    it('rejects and skips events when afterRestore fire() rejects (transaction rolls back)', async () => {
+      const hookError = new Error('Cascade failed in afterRestore');
+      const emitFn = vi.fn().mockResolvedValue(undefined);
+      const entries = [{ id: 1, documentId: 'doc-1', _softDeletedAt: '2026-01-01' }];
+      mock
+        .getQueryForUid(UID)
+        .findMany.mockResolvedValueOnce(entries)
+        .mockResolvedValueOnce([{ ...entries[0], _softDeletedAt: null }]);
+      mock.registerService('soft-delete', 'lifecycle-hooks', {
+        fire: vi
+          .fn()
+          .mockResolvedValueOnce(undefined) // beforeRestore
+          .mockRejectedValueOnce(hookError), // afterRestore → rollback
+      });
+      mock.registerService('soft-delete', 'event-emitter', { emit: emitFn });
+      const service = createService();
+
+      await expect(service.restore(UID, 'doc-1', 'collectionType')).rejects.toBe(hookError);
+      expect(emitFn).not.toHaveBeenCalled();
     });
   });
 
