@@ -39,21 +39,24 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "react-query": "^3.0.0"
+  },
+  "peerDependencies": {
     "@strapi/admin": "^5.0.0",
-    "@strapi/design-system": "^2.2.0",
-    "@strapi/icons": "^2.2.0",
+    "@strapi/design-system": "^2.0.0",
+    "@strapi/icons": "^2.0.0",
+    "@strapi/strapi": "^5.0.0",
+    "@strapi/utils": "^5.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
-    "react-intl": "^6.0.0",
-    "react-query": "^3.0.0",
+    "react-intl": "^6.0.0 || ^7.0.0",
     "react-router-dom": "^6.0.0",
     "styled-components": "^6.0.0"
   },
-  "peerDependencies": {
-    "@strapi/strapi": "^5.0.0",
-    "@strapi/utils": "^5.0.0"
-  },
   "devDependencies": {
+    "@strapi/admin": "^5.0.0",
+    "@strapi/design-system": "^2.2.0",
+    "@strapi/icons": "^2.2.0",
     "@strapi/sdk-plugin": "^6.0.1",
     "@strapi/strapi": "^5.0.0",
     "@strapi/types": "^5.0.0",
@@ -69,6 +72,7 @@
     "prettier": "^3.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
+    "react-intl": "^6.0.0",
     "react-router-dom": "^6.30.3",
     "styled-components": "^6.0.0",
     "typescript": "^5.0.0",
