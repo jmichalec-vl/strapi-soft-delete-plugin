@@ -59,6 +59,12 @@ npm run build
 npm run develop
 ```
 
+### Peer dependencies
+
+The plugin declares no runtime `dependencies`. Everything its admin UI imports (`@strapi/admin`, `@strapi/design-system`, `@strapi/icons`, `react`, `react-dom`, `react-intl`, `react-query`, `react-router-dom`, `styled-components`) is a `peerDependency` that every Strapi v5 app already provides through `@strapi/admin`. No extra installs are needed.
+
+This matters for `react-query` in particular: the plugin's hooks run inside the `QueryClientProvider` that Strapi's admin mounts, so they must resolve to the same `react-query` module instance as the host. Declaring it as a peer guarantees that.
+
 ## Configuration
 
 ### Auto-Purge (optional)

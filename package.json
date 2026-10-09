@@ -1,6 +1,6 @@
 {
   "name": "strapi-soft-delete-plugin",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Soft delete plugin for Strapi v5 — never lose content again. Drop-in replacement for strapi-plugin-soft-delete with pagination, lifecycle hooks, TTL auto-purge, and full test coverage.",
   "license": "MIT",
   "types": "./types.d.ts",
@@ -38,9 +38,6 @@
     "prepublishOnly": "npm run size-check",
     "prepare": "husky"
   },
-  "dependencies": {
-    "react-query": "^3.0.0"
-  },
   "peerDependencies": {
     "@strapi/admin": "^5.0.0",
     "@strapi/design-system": "^2.0.0",
@@ -50,6 +47,7 @@
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "react-intl": "^6.0.0 || ^7.0.0",
+    "react-query": "^3.39.0",
     "react-router-dom": "^6.0.0",
     "styled-components": "^6.0.0"
   },
@@ -73,6 +71,7 @@
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "react-intl": "^6.0.0",
+    "react-query": "^3.39.3",
     "react-router-dom": "^6.30.3",
     "styled-components": "^6.0.0",
     "typescript": "^5.0.0",
